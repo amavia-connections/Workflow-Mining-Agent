@@ -49,7 +49,9 @@ class QuantificationService:
             c_str = t.get("created_at")
             if c_str:
                 try:
-                    c_dt = datetime.fromisoformat(c_str.replace("Z", ""))
+                    c_dt = datetime.fromisoformat(c_str.replace("Z", "+00:00"))
+                    if c_dt.tzinfo is not None:
+                        c_dt = c_dt.replace(tzinfo=None)
                     created_dates.append(c_dt)
                 except Exception:
                     pass

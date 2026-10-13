@@ -10,7 +10,7 @@ import threading
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,10 +31,17 @@ from backend.services.workflow_discovery import WorkflowDiscoveryService
 from backend.services.quantification_service import QuantificationService
 from backend.agent.adk_orchestrator import ADKAutomationAgent
 from backend.evaluation.evaluator import EvaluationFramework
-from backend.data.synthetic_generator import generate_synthetic_dataset, save_dataset_to_csv
+from backend.data.synthetic_generator import generate_synthetic_dataset, save_dataset_to_csv, generate_tenant_tickets
 from backend.models.connector import ConnectorConfig, DLPConfig, SyncSummary
 from backend.connectors.manager import ConnectorManager
 from backend.connectors.dlp_service import DLPService
+from backend.services.audit_service import AuditService, audit_service
+from backend.services.export_service import ExportService
+from backend.services.pdf_service import PDFService
+from backend.services.notification_service import NotificationService
+from backend.services.queue_service import task_queue
+from backend.services.tenant_service import tenant_manager, ENTERPRISE_TENANTS
+from fastapi.responses import Response
 
 
 app = FastAPI(
@@ -60,6 +67,7 @@ quant_service = QuantificationService()
 agent = ADKAutomationAgent()
 evaluator = EvaluationFramework()
 connector_manager = ConnectorManager(repo=repo)
+audit_service = AuditService()
 
 # Global run state
 analysis_jobs: Dict[str, Dict[str, Any]] = {}
@@ -67,11 +75,14 @@ discovered_workflows_cache: Dict[str, List[DiscoveredWorkflow]] = {}
 automation_specs_cache: Dict[str, AutomationSpecification] = {}
 evaluation_reports_cache: Dict[str, EvaluationReport] = {}
 active_run_id: Optional[str] = None
+tenant_runs: Dict[str, str] = {}
+tenant_specs: Dict[str, AutomationSpecification] = {}
 
 
 class SyntheticGenerateRequest(BaseModel):
     count: int = Field(default=3000, ge=100, le=10000)
     seed: int = Field(default=42)
+    include_devops: bool = Field(default=False)
 
 
 class AnalysisRunRequest(BaseModel):
@@ -81,10 +92,10 @@ class AnalysisRunRequest(BaseModel):
     n_clusters: Optional[int] = 6
 
 
-def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct: float, n_clusters: int):
+def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct: float, n_clusters: int, tenant_id: str = "tenant_demo_sandbox"):
     """
     Background worker that runs the full end-to-end pipeline:
-    1. Ingestion / normalized tickets fetch
+    1. Ingestion / normalized tickets fetch (isolated by tenant_id)
     2. Semantic Embeddings & Clustering (Stage C)
     3. Gemini / Semantic interpretation (Stage C)
     4. Deterministic SQL Quantification & Ranking (Stage D)
@@ -96,15 +107,19 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         analysis_jobs[run_id]["progress"] = 10
         analysis_jobs[run_id]["message"] = "Fetching tickets for semantic embedding..."
 
-        tickets = repo.get_all_normalized_tickets_for_clustering()
+        tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id)
         if not tickets:
-            # If database is empty, automatically load synthetic tickets
-            csv_path = os.path.join(settings.DATA_DIR, "synthetic_tickets_3000.csv")
-            if not os.path.exists(csv_path):
-                synth_tickets, _ = generate_synthetic_dataset(num_tickets=3000, seed=42)
-                save_dataset_to_csv(synth_tickets, csv_path, include_ground_truth=True)
-            repo.ingest_csv(csv_path, dataset_name="Synthetic IT Service Tickets")
-            tickets = repo.get_all_normalized_tickets_for_clustering()
+            if tenant_id == "tenant_demo_sandbox":
+                csv_path = os.path.join(settings.DATA_DIR, "synthetic_tickets_3000.csv")
+                if not os.path.exists(csv_path):
+                    synth_tickets, _ = generate_synthetic_dataset(num_tickets=3000, seed=42)
+                    save_dataset_to_csv(synth_tickets, csv_path, include_ground_truth=True)
+                repo.ingest_csv(csv_path, dataset_name="Synthetic IT Service Tickets", tenant_id="tenant_demo_sandbox")
+            else:
+                tenant_info = ENTERPRISE_TENANTS.get(tenant_id, {})
+                tenant_tickets = generate_tenant_tickets(tenant_id=tenant_id, count=250, seed=abs(hash(tenant_id)) % 10000)
+                repo.ingest_ticket_records(tenant_tickets, dataset_name=f"{tenant_info.get('name', tenant_id)} Tickets", tenant_id=tenant_id)
+            tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id)
 
         analysis_jobs[run_id]["progress"] = 30
         analysis_jobs[run_id]["message"] = "Clustering semantically similar tickets..."
@@ -176,6 +191,7 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         ranked = custom_quant.rank_workflows(raw_workflows)
         discovered_wfs = [DiscoveredWorkflow(**w) for w in ranked]
         discovered_workflows_cache[run_id] = discovered_wfs
+        tenant_runs[tenant_id] = run_id
 
         analysis_jobs[run_id]["progress"] = 80
         analysis_jobs[run_id]["message"] = "ADK Agent drafting automation specification for top workflow..."
@@ -185,12 +201,13 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         top_rep_tickets = [ticket_map[t_id] for t_id in top_wf.representative_ticket_ids if t_id in ticket_map]
         automation_spec = agent.draft_specification(top_wf, top_rep_tickets, run_id)
         automation_specs_cache[automation_spec.draft_id] = automation_spec
+        tenant_specs[tenant_id] = automation_spec
 
         analysis_jobs[run_id]["progress"] = 92
         analysis_jobs[run_id]["message"] = "Evaluating performance against ground truth..."
 
         # Stage F: Evaluation against ground truth
-        full_tickets, _ = repo.get_tickets(limit=10000)
+        full_tickets, _ = repo.get_tickets(limit=10000, tenant_id=tenant_id)
         report = evaluator.evaluate_run(
             run_id=run_id,
             dataset_name=analysis_jobs[run_id]["dataset_name"],
@@ -215,6 +232,30 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         analysis_jobs[run_id]["message"] = f"Analysis failed: {str(e)}"
 
 
+def ensure_tenant_pipeline(tenant_id: str) -> str:
+    """Ensures the specified tenant has an initialized dataset and discovered workflows."""
+    global active_run_id
+    if tenant_id in tenant_runs and tenant_runs[tenant_id] in discovered_workflows_cache:
+        active_run_id = tenant_runs[tenant_id]
+        return tenant_runs[tenant_id]
+        
+    tenant_info = ENTERPRISE_TENANTS.get(tenant_id, ENTERPRISE_TENANTS["tenant_demo_sandbox"])
+    run_id = f"RUN-{tenant_id.replace('tenant_', '').upper()}-001"
+    tenant_runs[tenant_id] = run_id
+    active_run_id = run_id
+    
+    analysis_jobs[run_id] = {
+        "run_id": run_id,
+        "dataset_name": f"{tenant_info['name']} Tickets",
+        "status": "RUNNING",
+        "progress": 0,
+        "message": f"Analyzing tickets for {tenant_info['name']}...",
+        "created_at": datetime.utcnow().isoformat()
+    }
+    _execute_analysis_pipeline(run_id, 65.0, 0.75, 6, tenant_id=tenant_id)
+    return run_id
+
+
 @app.get("/health")
 def health_check():
     """Health check endpoint for Cloud Run and monitoring."""
@@ -230,22 +271,16 @@ def health_check():
 def get_dashboard_summary():
     """Returns top-level dashboard metrics for the Overview screen."""
     global active_run_id
-    
-    # If no analysis run has occurred yet, auto-trigger baseline demo run
-    if not active_run_id or active_run_id not in discovered_workflows_cache:
-        demo_run_id = "RUN-DEMO-001"
-        active_run_id = demo_run_id
-        analysis_jobs[demo_run_id] = {
-            "run_id": demo_run_id,
-            "dataset_name": "Synthetic IT Tickets (3,000)",
-            "status": "COMPLETED",
-            "progress": 100,
-            "created_at": datetime.utcnow().isoformat()
-        }
-        _execute_analysis_pipeline(demo_run_id, 65.0, 0.75, 6)
+    active_tenant = tenant_manager.get_active_tenant()
+    tenant_id = active_tenant["tenant_id"]
 
-    workflows = discovered_workflows_cache.get(active_run_id, [])
-    full_tickets, total_tickets = repo.get_tickets(limit=1)
+    # Ensure this tenant has been initialized and analyzed
+    ensure_tenant_pipeline(tenant_id)
+    cur_run_id = tenant_runs.get(tenant_id, "RUN-DEMO-001")
+    active_run_id = cur_run_id
+
+    workflows = discovered_workflows_cache.get(cur_run_id, [])
+    full_tickets, total_tickets = repo.get_tickets(limit=1, tenant_id=tenant_id)
 
     total_monthly_hours = round(sum(w.metrics.total_handling_hours_per_month for w in workflows), 1)
     total_potential_monthly_savings_hours = round(sum(w.metrics.potential_hours_saved_per_month for w in workflows), 1)
@@ -276,7 +311,9 @@ def get_dashboard_summary():
     ]
 
     return {
-        "active_run_id": active_run_id,
+        "active_run_id": cur_run_id,
+        "tenant_id": tenant_id,
+        "tenant_name": active_tenant["name"],
         "total_tickets_analyzed": total_tickets,
         "workflows_discovered_count": len(workflows),
         "total_monthly_handling_hours": total_monthly_hours,
@@ -308,7 +345,7 @@ async def upload_dataset(file: UploadFile = File(...)):
 def generate_synthetic(req: SyntheticGenerateRequest):
     """Generates synthetic dataset deterministically."""
     csv_path = os.path.join(settings.DATA_DIR, f"synthetic_tickets_{req.count}.csv")
-    tickets, manifest = generate_synthetic_dataset(num_tickets=req.count, seed=req.seed)
+    tickets, manifest = generate_synthetic_dataset(num_tickets=req.count, seed=req.seed, include_devops=req.include_devops)
     save_dataset_to_csv(tickets, csv_path, include_ground_truth=True)
     
     with open("data/ground_truth_manifest.json", "w", encoding="utf-8") as f:
@@ -328,15 +365,19 @@ def get_tickets(
     offset: int = Query(0, ge=0),
     category: Optional[str] = None,
     workflow_id: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    tenant_id: Optional[str] = None
 ):
     """Queries tickets with pagination and filters."""
-    tickets, total = repo.get_tickets(limit=limit, offset=offset, category=category, workflow_id=workflow_id, search=search)
+    active_tenant_id = tenant_id or tenant_manager.get_active_tenant()["tenant_id"]
+    ensure_tenant_pipeline(active_tenant_id)
+    tickets, total = repo.get_tickets(limit=limit, offset=offset, category=category, workflow_id=workflow_id, search=search, tenant_id=active_tenant_id)
     return {
         "items": tickets,
         "total": total,
         "limit": limit,
-        "offset": offset
+        "offset": offset,
+        "tenant_id": active_tenant_id
     }
 
 
@@ -387,7 +428,9 @@ def get_analysis_status(run_id: str):
 @app.get("/api/workflows")
 def get_workflows(run_id: Optional[str] = None):
     """Returns ranked list of discovered workflows."""
-    target_run = run_id or active_run_id
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    ensure_tenant_pipeline(active_tenant_id)
+    target_run = run_id or tenant_runs.get(active_tenant_id) or active_run_id
     if not target_run or target_run not in discovered_workflows_cache:
         # Return fallback or empty
         return []
@@ -397,7 +440,9 @@ def get_workflows(run_id: Optional[str] = None):
 @app.get("/api/workflows/{workflow_id}")
 def get_workflow(workflow_id: str, run_id: Optional[str] = None):
     """Returns details for a specific workflow."""
-    target_run = run_id or active_run_id
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    ensure_tenant_pipeline(active_tenant_id)
+    target_run = run_id or tenant_runs.get(active_tenant_id) or active_run_id
     workflows = discovered_workflows_cache.get(target_run, [])
     for w in workflows:
         if w.workflow_id == workflow_id:
@@ -408,34 +453,45 @@ def get_workflow(workflow_id: str, run_id: Optional[str] = None):
 @app.get("/api/workflows/{workflow_id}/tickets")
 def get_workflow_tickets(workflow_id: str):
     """Returns tickets assigned to a workflow cluster."""
-    tickets, total = repo.get_tickets(limit=100, workflow_id=workflow_id)
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    ensure_tenant_pipeline(active_tenant_id)
+    tickets, total = repo.get_tickets(limit=100, workflow_id=workflow_id, tenant_id=active_tenant_id)
     return {"tickets": tickets, "total": total}
 
 
 @app.post("/api/automations/draft")
 def draft_automation_spec(workflow_id: str, run_id: Optional[str] = None):
     """Drafts automation specification for selected workflow."""
-    target_run = run_id or active_run_id
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    ensure_tenant_pipeline(active_tenant_id)
+    target_run = run_id or tenant_runs.get(active_tenant_id) or active_run_id
     workflows = discovered_workflows_cache.get(target_run, [])
     target_wf = next((w for w in workflows if w.workflow_id == workflow_id), None)
     if not target_wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
         
-    rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=workflow_id)
+    rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=workflow_id, tenant_id=active_tenant_id)
     spec = agent.draft_specification(target_wf, rep_tickets, target_run or "MANUAL-RUN")
     automation_specs_cache[spec.draft_id] = spec
+    tenant_specs[active_tenant_id] = spec
     return spec
 
 
 @app.get("/api/automations/{draft_id}")
 def get_automation_spec(draft_id: str):
     """Retrieves drafted specification."""
-    if draft_id not in automation_specs_cache:
-        # If looking for first available draft
-        if automation_specs_cache:
-            return list(automation_specs_cache.values())[0]
-        raise HTTPException(status_code=404, detail="Automation draft not found")
-    return automation_specs_cache[draft_id]
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    ensure_tenant_pipeline(active_tenant_id)
+    if active_tenant_id in tenant_specs:
+        if draft_id in ["any", "latest", "default"] or draft_id == tenant_specs[active_tenant_id].draft_id:
+            return tenant_specs[active_tenant_id]
+    if draft_id in automation_specs_cache:
+        return automation_specs_cache[draft_id]
+    if active_tenant_id in tenant_specs:
+        return tenant_specs[active_tenant_id]
+    if automation_specs_cache:
+        return list(automation_specs_cache.values())[0]
+    raise HTTPException(status_code=404, detail="Automation draft not found")
 
 
 @app.post("/api/automations/{draft_id}/review")
@@ -443,40 +499,67 @@ def review_automation_spec(draft_id: str, review: ReviewRequest):
     """
     Submits human review decision.
     MANDATORY SAFETY BOUNDARY: Approval records a review decision, never executes the automation.
+    Enforces RBAC: Only 'Governance Approver' or 'Admin' personas can record approvals.
     """
-    if draft_id not in automation_specs_cache:
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    spec = automation_specs_cache.get(draft_id) or tenant_specs.get(active_tenant_id)
+    if not spec:
         raise HTTPException(status_code=404, detail="Automation draft not found")
+
+    role = review.reviewer_role or "Governance Approver"
+    if role in ["ITSM / DevOps Analyst", "Executive / Viewer"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"RBAC Permission Denied: Role '{role}' does not have authority to record approval decisions. Switch to 'Governance Approver' or 'Admin'."
+        )
         
-    spec = automation_specs_cache[draft_id]
     updated_spec = agent.process_review(spec, review)
-    automation_specs_cache[draft_id] = updated_spec
+    automation_specs_cache[updated_spec.draft_id] = updated_spec
+    tenant_specs[active_tenant_id] = updated_spec
+
+    audit_service.record_event(
+        actor_identity=review.reviewer_name,
+        role=role,
+        action_type="SPEC_APPROVED" if review.action == ApprovalStatus.APPROVED else "SPEC_REVIEWED",
+        resource_id=updated_spec.draft_id,
+        details=f"Action: {review.action.value}. Reviewer: {review.reviewer_name}. Comments: {review.comments or 'None'}"
+    )
+
     return updated_spec
 
 
 @app.get("/api/evaluation/{run_id}")
 def get_evaluation_report(run_id: str):
     """Retrieves Stage F evaluation report comparing predictions to ground truth."""
-    if run_id not in evaluation_reports_cache:
-        # If run exists, compute report on the fly
-        target_run = run_id or active_run_id
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    ensure_tenant_pipeline(active_tenant_id)
+    target_run = run_id
+    if target_run in ["latest", "active", "default", "undefined"] or not target_run:
+        target_run = tenant_runs.get(active_tenant_id, active_run_id)
+
+    if target_run not in evaluation_reports_cache:
         workflows = discovered_workflows_cache.get(target_run, [])
         if workflows:
-            tickets, _ = repo.get_tickets(limit=10000)
-            spec = list(automation_specs_cache.values())[0] if automation_specs_cache else None
-            rep = evaluator.evaluate_run(run_id, "Synthetic Dataset", tickets, workflows, spec)
-            evaluation_reports_cache[run_id] = rep
+            tickets, _ = repo.get_tickets(limit=10000, tenant_id=active_tenant_id)
+            spec = tenant_specs.get(active_tenant_id) or (list(automation_specs_cache.values())[0] if automation_specs_cache else None)
+            rep = evaluator.evaluate_run(target_run, f"{tenant_manager.get_active_tenant()['name']} Dataset", tickets, workflows, spec)
+            evaluation_reports_cache[target_run] = rep
             return rep
         raise HTTPException(status_code=404, detail="Evaluation report not found")
-    return evaluation_reports_cache[run_id]
+    return evaluation_reports_cache[target_run]
 
 
 @app.get("/api/exports/automation/{draft_id}")
 def export_automation_spec(draft_id: str, format: str = Query("markdown", pattern="^(markdown|json)$")):
     """Exports automation specification as clean Markdown or JSON."""
-    if draft_id not in automation_specs_cache:
-        raise HTTPException(status_code=404, detail="Draft not found")
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    spec = automation_specs_cache.get(draft_id) or tenant_specs.get(active_tenant_id)
+    if not spec:
+        if automation_specs_cache:
+            spec = list(automation_specs_cache.values())[0]
+        else:
+            raise HTTPException(status_code=404, detail="Draft not found")
         
-    spec = automation_specs_cache[draft_id]
     if format == "markdown":
         md = agent.export_specification_markdown(spec)
         return PlainTextResponse(content=md, media_type="text/markdown")
@@ -549,6 +632,320 @@ def preview_dlp(req: DLPPreviewRequest):
         "redactions": redactions,
         "total_redactions": sum(r["count"] for r in redactions)
     }
+
+
+@app.post("/api/connectors/custom/webhook")
+async def handle_custom_webhook(
+    request: Request,
+    x_hub_signature_256: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
+    x_webhook_signature: Optional[str] = Header(None, alias="X-Webhook-Signature")
+):
+    """
+    Public webhook listener for proprietary in-house ticketing systems.
+    Validates HMAC-SHA256 signature, sanitizes with Cloud DLP, and stores records.
+    """
+    body = await request.body()
+    sig = x_hub_signature_256 or x_webhook_signature
+    try:
+        res = connector_manager.verify_and_ingest_webhook(raw_body=body, signature=sig)
+        audit_service.record_event(
+            actor_identity="Custom Webhook Client",
+            role="Admin",
+            action_type="INGESTION_SYNC",
+            resource_id="custom-webhook-01",
+            details=f"Ingested {res['ingested_count']} tickets via webhook."
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/audit-logs")
+def get_audit_logs(limit: int = 50, offset: int = 0):
+    """Retrieves paginated immutable compliance audit logs with SHA-256 signatures."""
+    logs, total = audit_service.get_logs(limit=limit, offset=offset)
+    return {"items": logs, "total": total}
+
+
+@app.get("/api/exports/automation/{draft_id}/target")
+def export_target_automation_spec(
+    draft_id: str,
+    format: Optional[str] = Query(None),
+    target: Optional[str] = Query(None)
+):
+    target_format = (format or target or "github_actions").lower()
+    if target_format == "python":
+        target_format = "python_script"
+
+    """
+    Multi-Target Exporter: Exports specifications formatted for:
+    - servicenow: Flow Designer Definition (JSON)
+    - jira: Automation Rule Template (JSON)
+    - github_actions: Remediation Workflow (YAML)
+    - ansible: Playbook (YAML)
+    - python_script: Executable Python Script Boilerplate
+    - executive_summary: Print-ready CFO/CIO Business Case Memo (HTML)
+    """
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    target_spec = None
+    if draft_id in automation_specs_cache:
+        target_spec = automation_specs_cache[draft_id]
+    elif active_tenant_id in tenant_specs:
+        target_spec = tenant_specs[active_tenant_id]
+    elif automation_specs_cache:
+        target_spec = list(automation_specs_cache.values())[0]
+
+    if not target_spec:
+        # Fallback to drafting from first discovered workflow
+        workflows = list(discovered_workflows_cache.values())[0] if discovered_workflows_cache else []
+        if workflows:
+            rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=workflows[0].workflow_id, tenant_id=active_tenant_id)
+            target_spec = agent.draft_specification(workflows[0], rep_tickets, "EXPORT-ON-DEMAND")
+            automation_specs_cache[target_spec.draft_id] = target_spec
+            tenant_specs[active_tenant_id] = target_spec
+        else:
+            raise HTTPException(status_code=404, detail="No automation specification available for export.")
+
+    audit_service.record_event(
+        actor_identity="Active User",
+        role="Admin",
+        action_type="EXPORT_DOWNLOADED",
+        resource_id=target_spec.draft_id,
+        details=f"Exported specification formatted for '{target_format}'."
+    )
+
+    if target_format == "servicenow":
+        content = ExportService.export_servicenow_flow(target_spec)
+        return PlainTextResponse(content=content, media_type="application/json")
+    elif target_format == "jira":
+        content = ExportService.export_jira_automation_rule(target_spec)
+        return PlainTextResponse(content=content, media_type="application/json")
+    elif target_format == "github_actions":
+        content = ExportService.export_github_actions_yaml(target_spec)
+        return PlainTextResponse(content=content, media_type="text/yaml")
+    elif target_format == "ansible":
+        content = ExportService.export_ansible_playbook_yaml(target_spec)
+        return PlainTextResponse(content=content, media_type="text/yaml")
+    elif target_format == "python_script":
+        content = ExportService.export_python_script(target_spec)
+        return PlainTextResponse(content=content, media_type="text/x-python")
+    elif target_format == "executive_summary":
+        content = ExportService.export_executive_business_case(target_spec)
+        return PlainTextResponse(content=content, media_type="text/html")
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported export format.")
+
+
+@app.get("/api/exports/automation/{draft_id}/pdf")
+def export_automation_spec_pdf(draft_id: str):
+    """
+    Renders a print-ready Executive Automation Business Case PDF memo directly via ReportLab.
+    """
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
+    target_spec = None
+    if draft_id in automation_specs_cache:
+        target_spec = automation_specs_cache[draft_id]
+    elif active_tenant_id in tenant_specs:
+        target_spec = tenant_specs[active_tenant_id]
+    elif automation_specs_cache:
+        target_spec = list(automation_specs_cache.values())[0]
+
+    if not target_spec:
+        workflows = list(discovered_workflows_cache.values())[0] if discovered_workflows_cache else []
+        if workflows:
+            rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=workflows[0].workflow_id, tenant_id=active_tenant_id)
+            target_spec = agent.draft_specification(workflows[0], rep_tickets, "EXPORT-ON-DEMAND")
+            automation_specs_cache[target_spec.draft_id] = target_spec
+            tenant_specs[active_tenant_id] = target_spec
+        else:
+            raise HTTPException(status_code=404, detail="No automation specification available for PDF export.")
+
+    pdf_bytes = PDFService.generate_executive_business_case_pdf(target_spec)
+
+    audit_service.record_event(
+        actor_identity="Active User",
+        role="Admin",
+        action_type="EXPORT_DOWNLOADED",
+        resource_id=target_spec.draft_id,
+        details="Downloaded Executive Business Case PDF memo."
+    )
+
+    filename = f"{target_spec.draft_id.lower()}_executive_business_case.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\""
+        }
+    )
+
+
+class NotificationRequest(BaseModel):
+    platform: str = Field(default="slack")  # "slack" or "teams"
+    webhook_url: Optional[str] = None
+    workflow_id: Optional[str] = None
+    draft_id: Optional[str] = None
+
+
+@app.post("/api/notifications/test")
+def test_notification_dispatch(req: NotificationRequest):
+    """Dispatches a test notification to Slack or Teams."""
+    platform = req.platform.lower()
+    url = req.webhook_url or "https://hooks.slack.com/services/DEMO/LOCAL/TEST"
+    
+    test_workflow = {
+        "workflow_id": req.workflow_id or "WF-01",
+        "workflow_name": "Kubernetes Pod CrashLoopBackOff & OOMKilled Triage",
+        "potential_annual_cost_savings": 79440.0,
+        "potential_annual_hours_saved": 1222.0,
+        "implementation_complexity": "Medium",
+        "description": "Repetitive SRE pod memory limit triage discovered with 75% automation feasibility."
+    }
+    
+    if platform == "teams":
+        payload = NotificationService.build_teams_opportunity_payload(test_workflow)
+    else:
+        payload = NotificationService.build_slack_opportunity_payload(test_workflow)
+
+    res = NotificationService.dispatch_webhook(url, platform, payload, event_name="TEST_NOTIFICATION")
+    return res
+
+
+@app.post("/api/notifications/approval-request")
+def dispatch_approval_request_notification(req: NotificationRequest):
+    """Dispatches human approval request alert to ChatOps channels."""
+    target_spec = None
+    if req.draft_id and req.draft_id in automation_specs_cache:
+        target_spec = automation_specs_cache[req.draft_id]
+    elif automation_specs_cache:
+        target_spec = list(automation_specs_cache.values())[0]
+
+    if not target_spec:
+        raise HTTPException(status_code=404, detail="No specification available to dispatch.")
+
+    platform = req.platform.lower()
+    url = req.webhook_url or "https://hooks.slack.com/services/DEMO/LOCAL/TEST"
+    
+    payload = NotificationService.build_slack_approval_request_payload(target_spec)
+    res = NotificationService.dispatch_webhook(url, platform, payload, event_name="APPROVAL_REQUEST")
+    return res
+
+
+# ==============================================================================
+# OPTION B: DISTRIBUTED TASK QUEUE & TOKEN-BUCKET RATE LIMITER ENDPOINTS
+# ==============================================================================
+
+class EnqueueTaskRequest(BaseModel):
+    task_type: str = Field(default="INGESTION_SYNC")
+    connector_id: str = Field(default="servicenow-enterprise-01")
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    priority: str = Field(default="NORMAL")
+
+
+@app.post("/api/queue/enqueue")
+def enqueue_background_task(req: EnqueueTaskRequest):
+    """Enqueues an ingestion or extraction task into the distributed-style queue."""
+    task = task_queue.enqueue_task(
+        task_type=req.task_type,
+        connector_id=req.connector_id,
+        payload=req.payload,
+        priority=req.priority
+    )
+    return task
+
+
+@app.get("/api/queue/status")
+def get_queue_and_rate_limit_status():
+    """Returns real-time queue metrics, worker state, and token-bucket capacity."""
+    return task_queue.get_metrics()
+
+
+@app.post("/api/queue/drain")
+def drain_queued_tasks(batch_size: int = Query(5, ge=1, le=50)):
+    """Processes queued tasks respecting rate limits."""
+    processed = task_queue.process_next_batch(batch_size=batch_size)
+    return {
+        "processed_count": len(processed),
+        "tasks": processed,
+        "remaining_status": task_queue.get_metrics()
+    }
+
+
+# ==============================================================================
+# OPTION D: MULTI-TENANT ISOLATION & SAML 2.0 / OIDC SSO ENDPOINTS
+# ==============================================================================
+
+class TenantSwitchRequest(BaseModel):
+    tenant_id: str
+
+
+class SamlLoginRequest(BaseModel):
+    idp_name: Optional[str] = "Okta Enterprise SSO"
+    email: Optional[str] = "sarah.connor@acmeglobal.com"
+    role: Optional[str] = "Governance Approver"
+    tenant_id: Optional[str] = "tenant_acme_global"
+
+
+@app.get("/api/tenants")
+def list_enterprise_tenants():
+    """Lists available enterprise customer tenants."""
+    return {
+        "active_tenant": tenant_manager.get_active_tenant(),
+        "tenants": tenant_manager.list_tenants()
+    }
+
+
+@app.post("/api/tenants/switch")
+def switch_active_tenant(req: TenantSwitchRequest):
+    """Switches the active tenant context for multi-tenant data isolation."""
+    tenant = tenant_manager.switch_tenant(req.tenant_id)
+    ensure_tenant_pipeline(req.tenant_id)
+    audit_service.record_event(
+        actor_identity="Active Admin",
+        role="Admin",
+        action_type="TENANT_SWITCHED",
+        resource_id=req.tenant_id,
+        details=f"Switched platform tenant context to '{tenant['name']}'."
+    )
+    return tenant
+
+
+@app.post("/api/auth/saml/login")
+def initiate_saml_login(req: SamlLoginRequest):
+    """Generates SAML 2.0 AuthnRequest XML for corporate IdP redirection."""
+    authn_request = tenant_manager.generate_saml_auth_request(req.idp_name)
+    return authn_request
+
+
+@app.post("/api/auth/saml/callback")
+def complete_saml_login_callback(req: SamlLoginRequest):
+    """Simulates SAML 2.0 assertion exchange and issues enterprise session claims."""
+    session = tenant_manager.simulate_saml_login(
+        email=req.email,
+        role=req.role,
+        tenant_id=req.tenant_id
+    )
+    audit_service.record_event(
+        actor_identity=session["email"],
+        role=session["role"],
+        action_type="SAML_SSO_LOGIN",
+        resource_id=session["tenant_id"],
+        details=f"Authenticated via {session['idp_issuer']} with SAML groups: {', '.join(session['saml_groups'])}"
+    )
+    return session
+
+
+@app.get("/api/auth/session")
+def get_current_enterprise_session():
+    """Returns active enterprise authenticated user claims and tenant context."""
+    return {
+        "session": tenant_manager.active_session,
+        "tenant": tenant_manager.get_active_tenant()
+    }
+
+
 
 
 # Serve frontend static assets if built

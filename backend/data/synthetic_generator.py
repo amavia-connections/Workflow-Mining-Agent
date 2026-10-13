@@ -144,6 +144,306 @@ PLANTED_WORKFLOWS = {
     }
 }
 
+DEVOPS_PLANTED_WORKFLOWS = {
+    "WF_CICD_FLAKY_TEST": {
+        "name": "CI/CD Pipeline Failure & Flaky Test Remediation",
+        "description": "Flushing runner build cache, re-triggering failed workflow jobs, quarantining flaky tests, and confirming green PR status.",
+        "category": "DevOps & CI/CD",
+        "typical_handling_range": (20, 40),
+        "systems": ["GitHub Actions", "GitLab CI", "Docker Registry"],
+        "templates": [
+            ("CI/CD pipeline failure on {repo_name} PR #{pr_number}",
+             "GitHub Actions runner timed out during integration test suite on branch {branch}. Job failed with exit code 137.",
+             "Flushed runner build cache. Inspected test artifact logs; identified flaky timeout in test_payment_webhook. Quarantined flaky test in quarantine.json manifest. Re-triggered workflow job; all 42 checks passed green."),
+            ("Docker build layer cache corruption in {repo_name} pipeline",
+             "GitLab CI pipeline failed during docker build step: layer cache checksum mismatch on branch {branch}.",
+             "Purged remote container registry cache tags. Re-ran pipeline with --no-cache flag. Image built and scanned with Trivy: 0 critical vulnerabilities. Deployed to dev cluster."),
+            ("Runner timeout on e2e test suite: {service}",
+             "Automated PR merge blocked for {repo_name}. End-to-end regression job exceeded 45-minute timeout threshold.",
+             "Identified deadlocked Selenium worker thread. Terminated stuck runner container. Bumped runner parallelism from 4 to 8. Re-executed workflow; build finished in 18 minutes.")
+        ],
+        "pr_numbers": [1042, 1089, 1120, 1156, 1201],
+        "branches": ["feature/auth-v2", "fix/checkout-timeout", "chore/upgrade-deps", "feat/kafka-consumer"]
+    },
+    "WF_K8S_CRASHLOOP_OOM": {
+        "name": "Kubernetes CrashLoopBackOff & OOMKilled Pod Triage",
+        "description": "Investigating pod evictions, inspecting container exit codes, adjusting memory limits in Helm/GitOps manifests, and stabilizing workloads.",
+        "category": "Platform Engineering",
+        "typical_handling_range": (25, 45),
+        "systems": ["Kubernetes API", "Prometheus", "Helm"],
+        "templates": [
+            ("Prometheus Alert: KubePodCrashLooping in namespace {namespace}",
+             "Microservice {service} pod in CrashLoopBackOff state. Restart count 14 in last 30 minutes.",
+             "Ran kubectl logs --previous to capture crash stack trace. Discovered OutOfMemoryError (exit code 137). Checked Prometheus memory usage graph: peak usage hit 512Mi limit. Updated Helm values.yaml memory request to 512Mi and limit to 1Gi. Applied change via ArgoCD sync. Pod stabilized with 0 restarts."),
+            ("OOMKilled alert: {service} worker pod evicted in {namespace}",
+             "Production worker pod {service} killed by Linux kernel OOM killer during batch data ingestion.",
+             "Inspected kubectl describe pod. Confirmed Last State: Terminated with Reason: OOMKilled. Increased JVM heap max ratio in ConfigMap. Rolled out updated deployment. Monitored memory consumption for 20 mins; memory stabilized at 65%."),
+            ("Pod eviction in namespace {namespace} due to node memory pressure",
+             "Multiple pods evicted on node {host}. Service {service} degraded.",
+             "Cordoned and drained worker node {host}. Identified memory leak in {service} background task. Applied hotfix deployment and verified pod rescheduling across alternate node pool.")
+        ],
+        "namespaces": ["production-core", "payments-staging", "data-analytics", "ingress-system"]
+    },
+    "WF_TERRAFORM_LOCK": {
+        "name": "Terraform State Lock & IaC Drift Remediation",
+        "description": "Investigating stuck apply operations, safely unlocking DynamoDB/GCS state locks, diffing plan outputs, and resolving IaC drift.",
+        "category": "Infrastructure as Code",
+        "typical_handling_range": (15, 30),
+        "systems": ["Terraform Cloud", "AWS DynamoDB", "Google Cloud Storage"],
+        "templates": [
+            ("Terraform state lock acquisition failure on {resource}",
+             "Pipeline blocked: Error acquiring state lock: DynamoDB lock table item already exists for lock ID {lock_id}.",
+             "Verified no concurrent apply or plan jobs running in CI. Validated engineer who initiated prior plan had aborted terminal session. Executed terraform force-unlock {lock_id}. Ran terraform plan to verify state lock cleared and clean drift status."),
+            ("IaC drift detected on cloud resource {resource}",
+             "Nightly drift detection run flagged discrepancy between Terraform state and live cloud infrastructure.",
+             "Generated refreshed terraform plan. Identified manual tag modification applied via Cloud Console. Imported updated attributes into Terraform configuration file. Committed PR to GitOps repo; re-applied state with zero infrastructure changes."),
+            ("GCS state backend lock deadlock on env {env_id}",
+             "Staging deployment halted: Error locking state in GCS bucket gs://tf-state-{env_id}.",
+             "Inspected GCS object metadata. Cleared stale lock generation ID. Validated state file integrity with terraform state list. Deployment pipeline resumed successfully.")
+        ],
+        "lock_ids": ["a4f81c90-93bc-4b12", "b7e22d11-88fc-4c91", "c1a99f02-12aa-4188"]
+    },
+    "WF_DB_MIGRATION_LOCK": {
+        "name": "Database Migration Lock & Replica Lag Remediation",
+        "description": "Resolving schema migration lock deadlocks, diagnosing long-running queries, and mitigating read-replica replication lag.",
+        "category": "Database Reliability (DBRE)",
+        "typical_handling_range": (30, 50),
+        "systems": ["PostgreSQL", "Cloud SQL", "Flyway"],
+        "templates": [
+            ("Release blocked: Schema migration waiting for table lock on {service}",
+             "Flyway schema migration in release pipeline hanging for >15 minutes: Waiting for AccessExclusiveLock on table orders.",
+             "Queried pg_stat_activity to inspect active transactions. Discovered unindexed analytical query running for 2.4 hours holding lock. Notified query owner. Terminated blocking PID using pg_terminate_backend. Migration resumed immediately and completed in 8 seconds. Release unblocked."),
+            ("Cloud SQL read replica replication lag > 300s alert",
+             "Prometheus alert: Database replica replication lag exceeded 350 seconds. Read traffic failing.",
+             "Inspected replica status using SHOW SLAVE STATUS / pg_stat_replication. Found lock contention caused by heavy bulk update transaction. Temporarily diverted read traffic to primary instance. Increased IOPS allocation. Replication lag recovered to 0.4s."),
+            ("Deadlock detected during foreign key migration: {service}",
+             "Deployment rollback triggered: Deadlock detected between background celery worker and migration DDL.",
+             "Temporarily paused Celery task queue consumption. Re-executed schema migration script in isolated transaction. Successfully created foreign key with NOT VALID clause and validated asynchronously. Resumed worker queues.")
+        ]
+    },
+    "WF_KAFKA_CONSUMER_LAG": {
+        "name": "Kafka Consumer Group Rebalance Lag & DLQ Message Drain",
+        "description": "Diagnosing partition rebalance storms, clearing dead-letter queue backlogs, and adjusting consumer poll timeouts.",
+        "category": "Distributed Messaging",
+        "typical_handling_range": (20, 35),
+        "systems": ["Apache Kafka", "Confluent Cloud", "KEDA"],
+        "templates": [
+            ("Kafka consumer group lag alert: topic {service}-events lagging {pct}k msgs",
+             "Prometheus alert: consumer group {service}-workers falling behind SLA. Rebalance loop detected.",
+             "Inspected consumer pod metrics. Found heartbeating thread starvation caused by blocking external call. Increased max.poll.interval.ms to 300000ms. Drained unprocessable poison-pill messages to DLQ topic. Consumer group caught up in 8 minutes."),
+            ("Partition rebalance storm on cluster {host}",
+             "Kafka broker reporting frequent consumer group coordinator rebalances on {resource}.",
+             "Identified unstable pod restarts triggering continuous consumer rebalances. Upgraded consumer group assignment strategy to CooperativeStickyAssignor. Verified lag reduced to 0.")
+        ]
+    },
+    "WF_AWS_ASSUMEROLE_TIMEOUT": {
+        "name": "Cloud Cross-Account IAM AssumeRole Timeout Recovery",
+        "description": "Refreshing expired STS session credentials, auditing cross-account trust policies, and recovering pipeline authentication.",
+        "category": "Cloud Security",
+        "typical_handling_range": (15, 28),
+        "systems": ["AWS STS", "IAM", "Google Cloud Workload Identity"],
+        "templates": [
+            ("Cross-account AssumeRole session expired on {service}",
+             "CI deployment failed: ExpiredToken: The security token included in the request is expired during STS assume_role.",
+             "Validated Workload Identity Federation provider claims. Updated STS role session duration from 1800s to 3600s. Refreshed cached ephemeral token in GitHub Secrets. Re-triggered build; AWS credentials validated successfully."),
+            ("IAM trust policy denied AssumeRole on {resource}",
+             "Production data pipeline failed with AccessDenied: sts:AssumeRole not authorized for principal {role}.",
+             "Checked IAM trust relationship on destination account. Added external ID to trust policy. Tested STS AssumeRole via aws cli; session credentials returned valid token.")
+        ]
+    }
+}
+
+CORE_DEVOPS_PLANTED_WORKFLOWS = {
+    k: DEVOPS_PLANTED_WORKFLOWS[k]
+    for k in ["WF_CICD_FLAKY_TEST", "WF_K8S_CRASHLOOP_OOM", "WF_TERRAFORM_LOCK", "WF_DB_MIGRATION_LOCK"]
+}
+
+MANUFACTURING_PLANTED_WORKFLOWS = {
+    "WF_SAP_GUI_RESET": {
+        "name": "SAP ERP GUI Terminal Session Reset & Print Spool Unlock",
+        "description": "Clearing locked SAP user transaction sessions (SM04/SM12), resetting hung background spool jobs (SP01), and restoring warehouse terminal access.",
+        "category": "Enterprise ERP",
+        "typical_handling_range": (15, 28),
+        "systems": ["SAP S/4HANA", "SAP GUI", "Zebra Print Server"],
+        "templates": [
+            ("SAP session locked for user {user} in warehouse terminal {host}",
+             "Warehouse operator {user} unable to process shipping orders. SAP GUI locked with error: User already logged on in client 100.",
+             "Logged into SAP management console. Ran transaction SM04; located orphan GUI terminal session on terminal {host}. Terminated hung GUI process. Checked lock entries in SM12; cleared exclusive table lock on VBAK. User confirmed barcode scanning resumed."),
+            ("SAP spool job stuck in status 'Printing' for packing line {host}",
+             "Packing line label printer queue halted. SAP spool request #998124 hanging in output status.",
+             "Accessed transaction SP01. Found dead socket connection to network print server. Cancelled stuck spool request and re-routed print queue to backup thermal printer. Verified packing slip printing resumed.")
+        ]
+    },
+    "WF_PLC_EDGE_GATEWAY": {
+        "name": "PLC & Assembly Line Edge Gateway Firmware Resync",
+        "description": "Diagnosing Siemens/Allen-Bradley industrial IoT gateway connection drops, restarting edge telemetry daemons, and resyncing sensor polling loops.",
+        "category": "Industrial IoT & OT",
+        "typical_handling_range": (25, 45),
+        "systems": ["Siemens S7 PLC", "Moxa Edge Gateway", "Kepware OPC-UA"],
+        "templates": [
+            ("Edge gateway {host} communication timeout with Assembly Line PLC",
+             "Manufacturing execution system (MES) reporting telemetry loss from Line 3 PLC controller. Cycle time monitoring offline.",
+             "Verified physical switch link on OT VLAN. SSHed into Moxa edge gateway {host}. Found memory leak in edge forwarder daemon. Restarted gateway telemetry service via systemctl restart ot-collector. Verified Modbus TCP handshake to PLC restored (latency 4ms)."),
+            ("PLC gateway packet drop alert on packaging conveyor {host}",
+             "Line supervisor reports intermittent sensor data dropouts from conveyor torque sensors.",
+             "Inspected Ethernet/IP ring topology. Replaced degraded industrial RJ45 patch cable. Power-cycled edge interface module. Confirmed 0 CRC packet errors over 20-minute soak test.")
+        ]
+    },
+    "WF_SCADA_OPCUA_SYNC": {
+        "name": "SCADA Sensor Telemetry Dropout & OPC-UA Reconnection",
+        "description": "Renewing expired OPC-UA security certificates, restarting Kepware tag servers, and recovering real-time plant SCADA telemetry feeds.",
+        "category": "Plant Operations & SCADA",
+        "typical_handling_range": (20, 35),
+        "systems": ["Ignition SCADA", "OPC-UA", "KepserverEx"],
+        "templates": [
+            ("SCADA server reporting OPC-UA communication failure on {service}",
+             "Ignition SCADA dashboard showing Bad_CommunicationError on tag group Boiler-Telemetry-01.",
+             "Inspected OPC-UA client connection status in Ignition Gateway. Discovered server endpoint certificate expired. Generated renewed X.509 endpoint certificate in Kepware security store. Re-established trusted mutual certificate pairing. Tag quality returned to Good across all 140 sensors."),
+            ("Tag polling latency spike on plant SCADA server {host}",
+             "SCADA control room alarms delayed by >8 seconds. Tag scan rate degraded.",
+             "Analyzed OPC-UA server diagnostic logs. Identified thread pool saturation from orphaned client sessions. Restarted Kepware service. Tag scan rate normalized to 250ms SLA.")
+        ]
+    },
+    "WF_SUPPLY_CHAIN_IAM": {
+        "name": "Supplier Portal B2B Partner Credential & Token Renewal",
+        "description": "Provisioning external vendor EDI/AS2 credentials, resetting expired partner portal tokens, and auditing third-party supplier access.",
+        "category": "Supply Chain IAM",
+        "typical_handling_range": (15, 30),
+        "systems": ["Supplier Connect Portal", "Azure AD B2B", "Sterling Commerce"],
+        "templates": [
+            ("Vendor logistics coordinator {user} locked out of Supplier Portal",
+             "Tier-1 parts supplier coordinator {user} unable to submit Advance Shipping Notice (ASN). Partner account expired.",
+             "Verified vendor contract status with procurement officer. Re-enabled B2B external collaboration account in Azure AD B2B. Extended account validity by 90 days. Sent self-service MFA reset link. Supplier confirmed successful ASN submission."),
+            ("AS2 partner trading partner certificate expired for {service}",
+             "Inbound EDI purchase orders failing: AS2 decryption failed for partner {service}.",
+             "Received updated public signing certificate from vendor security team. Imported certificate into AS2 server keystore. Tested test EDI 850 document transmission; partner confirmed MDN receipt.")
+        ]
+    },
+    "WF_BARCODE_SCANNER_WIFI": {
+        "name": "Zebra Factory Floor Handheld Scanner Wi-Fi Handshake Fix",
+        "description": "Clearing 802.1x roaming authentication lockouts on Zebra Android scanners, resetting MDM profiles, and re-enrolling warehouse devices.",
+        "category": "Plant Floor Mobility",
+        "typical_handling_range": (12, 22),
+        "systems": ["Zebra TC57", "SOTI MobiControl MDM", "Cisco Catalyst Wireless"],
+        "templates": [
+            ("Handheld scanner {host} failing Wi-Fi authentication on plant floor",
+             "Order picking stopped in aisle 14. Zebra terminal {host} unable to associate with WPA2-Enterprise SSID.",
+             "Checked Cisco ISE RADIUS logs; identified expired machine certificate on device. Pushed updated SOTI MDM Wi-Fi profile over cellular fallback. Power-cycled device. Terminal authenticated successfully to plant-wlan-01 with -58 dBm signal."),
+            ("Barcode scanner app freezing on inventory scan: device {host}",
+             "Warehouse picker reporting scanner laser triggering but enterprise warehouse app unresponsive.",
+             "Remotely inspected device via MDM console. Cleared app data cache for WarehousePro. Re-synced offline lookup database. Verified test scan resolved item SKU immediately.")
+        ]
+    },
+    "WF_SAP_IDOC_QUEUE": {
+        "name": "Stuck SAP IDoc Transaction & EDI Purchase Order Queue Clear",
+        "description": "Investigating stuck inbound/outbound IDocs (status 51/64), correcting EDI segment errors, and reprocessing failed ERP purchase orders.",
+        "category": "ERP & Logistics EDI",
+        "typical_handling_range": (20, 40),
+        "systems": ["SAP BD87", "WE02", "Sterling Integrator"],
+        "templates": [
+            ("Critical: 48 SAP IDocs stuck in status 51 for sales orders",
+             "Customer delivery orders blocked. Inbound ORDERS05 IDocs failing with error: Material master missing sales view.",
+             "Ran transaction BD87 in SAP production. Identified missing sales organization view for new SKU #88192. Coordinated with master data team to maintain sales view. Re-processed failed IDoc queue via BD87; all 48 IDocs transitioned to status 53 (Success). Sales orders created."),
+            ("Outbound DESADV delivery notice IDocs stuck in queue {resource}",
+             "Outbound shipping notifications to freight carriers not sending. IDoc status 30.",
+             "Investigated transactional RFC (SM58). Found hung tRFC queue due to carrier partner endpoint timeout. Cleared blocked queue entry. Re-triggered RSARFCEX background report. 112 delivery notices dispatched successfully.")
+        ]
+    }
+}
+
+BANKING_PLANTED_WORKFLOWS = {
+    "WF_SWIFT_MT103_TLS": {
+        "name": "SWIFT MT103 Interbank Gateway TLS Certificate Rotation",
+        "description": "Rotating mutual TLS certificates on SWIFT Alliance Gateway, verifying HSM signing keys, and confirming international wire settlement routing.",
+        "category": "Payment Systems",
+        "typical_handling_range": (30, 55),
+        "systems": ["SWIFT Alliance Gateway", "Thales Luna HSM", "Finastra"],
+        "templates": [
+            ("SWIFT Gateway TLS certificate expiring in 7 days on node {host}",
+             "Compliance alert: Mutual TLS certificate on SWIFT Alliance Gateway {host} reaching 365-day expiration window. Wire cutoff at 17:00 EST.",
+             "Generated 4096-bit RSA CSR using Hardware Security Module (HSM). Submitted CSR to corporate PKI. Deployed approved cert into SWIFT Alliance Gateway keystore. Executed health check ping to SWIFT test network. Swapped live traffic during low-volume settlement window. Verified handshake 200 OK without dropping wire traffic."),
+            ("SWIFT wire message parsing warning on gateway {host}",
+             "Alliance Access reporting validation warning on incoming MT103 message format header.",
+             "Inspected SWIFT BIC directory version. Synchronized latest BIC Plus monthly delta file. Re-validated message syntax; wire transmission unblocked.")
+        ]
+    },
+    "WF_LEDGER_RECONCILE": {
+        "name": "Core Banking Ledger Settlement Discrepancy Triage",
+        "description": "Investigating automated end-of-day general ledger balancing discrepancies, auditing transaction settlement batches, and resolving rounding mismatches.",
+        "category": "Core Banking",
+        "typical_handling_range": (35, 60),
+        "systems": ["Temenos Transact", "Oracle Financials", "Kafka Financial Stream"],
+        "templates": [
+            ("End-of-day ledger mismatch: Clearing account balance off by $4,120.50",
+             "Daily automated balance reconciliation job flagged discrepancy between ACH clearing sub-ledger and GL control account.",
+             "Queried SQL settlement ledger for timestamp window 23:00-00:00. Located duplicate settlement event caused by network retry from debit card gateway. Prepared compensatory journal adjustment entry. Obtained VP Finance dual-authorization sign-off. Applied GL adjustment. Ledger balanced with zero net variance."),
+            ("Foreign exchange FX settlement variance in euro clearing queue",
+             "Automated cross-currency wire batch reported $84.20 rounding discrepancy in EUR/USD spot conversion.",
+             "Inspected Reuters real-time FX rate snapshot at transaction execution time. Corrected micro-precision rounding error in settlement conversion service. Posted rebalancing entry.")
+        ]
+    },
+    "WF_AML_SANCTION_CLEAR": {
+        "name": "Anti-Money Laundering (AML) Sanction Screen False-Positive Clear",
+        "description": "Reviewing automated OFAC/PEP sanction screening hits, comparing corporate beneficial ownership registries, and releasing blocked customer wire transfers.",
+        "category": "Financial Crime & Compliance",
+        "typical_handling_range": (20, 35),
+        "systems": ["Fircosoft AML", "LexisNexis WorldCompliance", "FinCEN Registry"],
+        "templates": [
+            ("Wire transfer #889124 blocked by OFAC Sanction Screening hit",
+             "Outbound wire payment of $150,000 held in quarantine. Remitter name matched Specially Designated Nationals (SDN) partial fuzzy hit.",
+             "Conducted Level-2 compliance review. Compared recipient date of birth, passport country, and address against OFAC SDN database. Confirmed false positive match on common patronymic surname. Attached compliance verification dossier to audit case. Released payment from AML quarantine queue."),
+            ("Politically Exposed Person (PEP) screening flag on commercial deposit",
+             "Automated onboarding AML check flagged new corporate treasury account signer as PEP match.",
+             "Reviewed LexisNexis WorldCompliance report. Validated individual is distant non-immediate relative with zero controlling interest. Logged Enhanced Due Diligence (EDD) sign-off; approved account opening.")
+        ]
+    },
+    "WF_BLOOMBERG_KERBEROS": {
+        "name": "Bloomberg Terminal & Trade Station Dual-Factor Kerberos Unlock",
+        "description": "Unlocking fixed-income/equities trader workstation credentials, re-authorizing Bloomberg B-Unit biometric tokens, and resetting Kerberos tickets.",
+        "category": "Trading Desk Tech",
+        "typical_handling_range": (10, 20),
+        "systems": ["Bloomberg Professional", "Active Directory Kerberos", "B-Unit"],
+        "templates": [
+            ("Trader {user} locked out of Bloomberg terminal on trading desk {host}",
+             "URGENT: Senior Equities Trader {user} locked out during market pre-open. Bloomberg B-Unit biometric rejected fingerprint 3 times.",
+             "Verified trader identity via recorded desk phone line and managing director approval. Reset Kerberos TGT ticket on Active Directory domain controller. Re-synchronized trader's physical Bloomberg B-Unit fingerprint scanner via Bloomberg Admin portal. Trader signed in successfully 12 minutes before market open."),
+            ("Trade execution terminal dual-monitor video lock on desk {host}",
+             "FX trading workstation frozen with Bloomberg launchpad unresponsive.",
+             "Remotely terminated hung Bloomberg win_api process. Flushed temporary terminal cache. Trader resumed live currency quote monitoring.")
+        ]
+    },
+    "WF_FEDRAMP_HSM_KEY": {
+        "name": "Cloud HSM Key Attestation & Encryption Envelope Rotation",
+        "description": "Validating FIPS 140-2 Level 3 hardware security module attestation statements, rotating customer data encryption keys (DEK), and logging compliance proofs.",
+        "category": "FinTech Security & Cryptography",
+        "typical_handling_range": (25, 45),
+        "systems": ["AWS CloudHSM", "Google Cloud KMS", "Vault HSM"],
+        "templates": [
+            ("FedRAMP quarterly compliance: HSM cryptographic key attestation required",
+             "Security audit requirement: Verify that payment database envelope master keys reside exclusively inside FIPS 140-2 Level 3 HSM hardware.",
+             "Executed HSM CLI key attestation command. Verified SHA-256 certificate signature chain against Thales hardware root CA. Exported tamper-evident cryptographic attestation manifest. Attached report to SOC2 compliance auditor evidence portal."),
+            ("Data encryption key (DEK) envelope rotation for cardholder database",
+             "PCI-DSS quarterly compliance mandate: Rotate symmetric AES-256 key for primary account number (PAN) storage.",
+             "Triggered automated envelope key rotation via Cloud KMS. Re-encrypted sample batch to verify backward decryption compatibility. Logged cryptographic audit hash.")
+        ]
+    },
+    "WF_EOD_BATCH_DEADLOCK": {
+        "name": "End-of-Day Settlement Batch Job Deadlock Recovery",
+        "description": "Mitigating overnight batch settlement process deadlocks, terminating orphaned database locks, and resuming interest accrual calculation pipelines.",
+        "category": "Capital Markets Operations",
+        "typical_handling_range": (30, 50),
+        "systems": ["Control-M", "IBM MQ", "Oracle Exadata"],
+        "templates": [
+            ("Control-M job EOD_SETTLE_BATCH_04 failed with ORA-00060 Deadlock",
+             "Overnight interest calculation pipeline halted at step 8 of 12. Overnight ACH settlement transmission window closing in 45 mins.",
+             "Analyzed Oracle v$lock table. Found deadlock between overnight loan interest accrual job and delayed mortgage payment batch. Terminated blocking shadow session. Reran batch job with optimized table partition locks. Pipeline finished in 22 minutes; clearing window met successfully."),
+            ("IBM MQ queue depth warning on settlement transaction queue {resource}",
+             "Message queue {resource} depth reached 95% capacity. Batch consumer not keeping pace with wire volume.",
+             "Allocated 4 additional batch consumer worker instances in Control-M scheduler. Monitored message consumption; queue drained to 0 in 14 minutes.")
+        ]
+    }
+}
+
 ONE_OFF_TEMPLATES = [
     ("Broken laptop monitor / HDMI port flickering", "Laptop HDMI display flickers when connecting to external monitor at desk 4B.", "Hardware Support", 35, "Replaced faulty USB-C dongle and verified display output."),
     ("Conference room C Zoom room audio echo", "During all-hands meeting, microphones in Conf Room C cause severe echo.", "Facilities IT", 45, "Recalibrated ceiling microphone array and updated Zoom Rooms controller firmware."),
@@ -196,10 +496,12 @@ def _introduce_noise(text: str, noise_type: str) -> str:
 def generate_synthetic_dataset(
     num_tickets: int = 3000,
     seed: int = 42,
-    start_date: datetime = None
+    start_date: datetime = None,
+    include_devops: bool = False
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Generates a deterministic synthetic IT ticket dataset.
+    Supports both baseline ITSM workflows (6) and extended DevOps/SRE workflows (10).
     
     Returns:
         (tickets_list, ground_truth_manifest)
@@ -209,15 +511,19 @@ def generate_synthetic_dataset(
         start_date = datetime(2025, 10, 1, 8, 0, 0)
     
     # Target distribution of tickets:
-    # 75% planted repetitive workflows (distributed across 6 categories)
-    # 25% one-off noise tickets
+    # 75% planted repetitive workflows, 25% one-off noise tickets
     num_planted = int(num_tickets * 0.75)
     num_one_offs = num_tickets - num_planted
     
-    # Workflow distribution weights
-    wf_keys = list(PLANTED_WORKFLOWS.keys())
-    # WF1: Access (20%), WF2: Env (14%), WF3: Log (17%), WF4: Pwd (24%), WF5: Deploy (13%), WF6: Cert (12%)
-    wf_weights = [0.20, 0.14, 0.17, 0.24, 0.13, 0.12]
+    # Select active workflows and weights
+    if include_devops:
+        active_wf = {**PLANTED_WORKFLOWS, **CORE_DEVOPS_PLANTED_WORKFLOWS}
+        wf_keys = list(active_wf.keys())
+        wf_weights = [0.12, 0.10, 0.10, 0.14, 0.09, 0.08, 0.10, 0.10, 0.09, 0.08]
+    else:
+        active_wf = PLANTED_WORKFLOWS
+        wf_keys = list(PLANTED_WORKFLOWS.keys())
+        wf_weights = [0.20, 0.14, 0.17, 0.24, 0.13, 0.12]
     
     planted_counts = {wf: 0 for wf in wf_keys}
     tickets = []
@@ -230,7 +536,7 @@ def generate_synthetic_dataset(
         "one_off_total": num_one_offs,
         "workflows": {
             wf: {
-                "name": PLANTED_WORKFLOWS[wf]["name"],
+                "name": active_wf[wf]["name"],
                 "count": 0,
                 "total_handling_minutes": 0.0,
                 "expected_hours_total": 0.0
@@ -243,7 +549,7 @@ def generate_synthetic_dataset(
     # 1. Generate planted repetitive tickets
     for _ in range(num_planted):
         wf_key = random.choices(wf_keys, weights=wf_weights, k=1)[0]
-        wf_meta = PLANTED_WORKFLOWS[wf_key]
+        wf_meta = active_wf[wf_key]
         planted_counts[wf_key] += 1
         
         tmpl = random.choice(wf_meta["templates"])
@@ -262,7 +568,11 @@ def generate_synthetic_dataset(
             "service": random.choice(wf_meta.get("services", ["core-api"])),
             "version": random.choice(wf_meta.get("versions", ["v1.0.0"])),
             "domain": random.choice(wf_meta.get("domains", ["app.internal"])),
-            "service_account": random.choice(wf_meta.get("service_accounts", ["sa@proj.iam.gserviceaccount.com"]))
+            "service_account": random.choice(wf_meta.get("service_accounts", ["sa@proj.iam.gserviceaccount.com"])),
+            "pr_number": random.choice(wf_meta.get("pr_numbers", [1042])),
+            "branch": random.choice(wf_meta.get("branches", ["main"])),
+            "namespace": random.choice(wf_meta.get("namespaces", ["production"])),
+            "lock_id": random.choice(wf_meta.get("lock_ids", ["lock-991"]))
         }
         
         title = title_fmt.format(**ctx)
@@ -376,3 +686,125 @@ def save_dataset_to_csv(tickets: List[Dict[str, Any]], filepath: str, include_gr
         for t in tickets:
             row = {k: t[k] for k in fieldnames}
             writer.writerow(row)
+
+
+def generate_tenant_tickets(tenant_id: str, count: int = 250, seed: int = 42) -> List[Dict[str, Any]]:
+    """
+    Generates industry-specific synthetic tickets partitioned by tenant_id.
+    - tenant_acme_global: Manufacturing / ERP (SAP, PLC, SCADA, Zebra)
+    - tenant_apex_bank: Regulated Banking / FinTech (SWIFT, Ledger, AML, Bloomberg)
+    - tenant_cloudscale: Cloud-Native DevOps / SRE (K8s, Kafka, Terraform, STS)
+    - tenant_demo_sandbox: Baseline ITSM (Access, Environment, Log Cleanup, Password)
+    """
+    random.seed(seed)
+    start_date = datetime(2025, 10, 1, 8, 0, 0)
+    
+    if tenant_id == "tenant_acme_global":
+        active_wfs = MANUFACTURING_PLANTED_WORKFLOWS
+        prefix = "ACME"
+    elif tenant_id == "tenant_apex_bank":
+        active_wfs = BANKING_PLANTED_WORKFLOWS
+        prefix = "APEX"
+    elif tenant_id == "tenant_cloudscale":
+        active_wfs = DEVOPS_PLANTED_WORKFLOWS
+        prefix = "SRE"
+    else:
+        active_wfs = PLANTED_WORKFLOWS
+        prefix = "DEMO"
+        
+    wf_keys = list(active_wfs.keys())
+    num_planted = int(count * 0.80)
+    num_one_offs = count - num_planted
+    
+    tickets = []
+    ticket_counter = 1
+    
+    for _ in range(num_planted):
+        wf_key = random.choice(wf_keys)
+        wf_meta = active_wfs[wf_key]
+        tmpl = random.choice(wf_meta["templates"])
+        title_fmt, desc_fmt, res_fmt = tmpl
+        
+        ctx = {
+            "user": random.choice(USER_NAMES),
+            "role": random.choice(wf_meta.get("roles", ["Operator", "Analyst", "Engineer"])),
+            "resource": random.choice(wf_meta.get("resources", ["prod-system-01", "queue-primary", "sap-cluster"])),
+            "group": random.choice(wf_meta.get("groups", ["operations-l2", "finance-clearing", "manufacturing-ot"])),
+            "host": random.choice(wf_meta.get("hosts", ["terminal-p01", "gw-moxa-02", "srv-swift-01", "k8s-worker-09"])),
+            "service": random.choice(wf_meta.get("services", ["core-ledger", "sap-orders", "kafka-broker-02", "plc-gateway"])),
+            "pct": random.choice([92, 95, 98, 88]),
+            "repo_name": random.choice(wf_meta.get("repos", ["payment-gateway", "checkout-api", "inventory-service"])),
+            "pr_number": random.choice(wf_meta.get("pr_numbers", [1042, 1150, 1289])),
+            "branch": random.choice(wf_meta.get("branches", ["main", "feature/auth", "hotfix/k8s-oom"])),
+            "namespace": random.choice(wf_meta.get("namespaces", ["production-core", "payments-staging", "data-analytics"])),
+            "env_id": random.choice(wf_meta.get("envs", ["prod-east-1", "staging-02", "us-central1"])),
+            "lock_id": random.choice(wf_meta.get("lock_ids", ["a4f81c90-93bc-4b12", "b7e22d11-88fc-4c91"])),
+            "version": random.choice(wf_meta.get("versions", ["v2.4.1", "v3.0.0-rc2"])),
+            "domain": random.choice(wf_meta.get("domains", ["internal.api", "payments.corp"])),
+            "service_account": random.choice(wf_meta.get("service_accounts", ["sa-cloudscale-sre@prod.iam.gserviceaccount.com"]))
+        }
+
+        class SafeDict(dict):
+            def __missing__(self, key):
+                return key
+        
+        safe_ctx = SafeDict(ctx)
+        title = title_fmt.format_map(safe_ctx)
+        desc = desc_fmt.format_map(safe_ctx)
+        res_notes = res_fmt.format_map(safe_ctx)
+        
+        min_h, max_h = wf_meta.get("typical_handling_range", (15, 30))
+        handling_mins = round(max(5.0, random.gauss((min_h + max_h) / 2.0, (max_h - min_h) / 4.0)), 1)
+        
+        day_offset = random.randint(0, 90)
+        created_dt = start_date + timedelta(days=day_offset, hours=random.randint(7, 19), minutes=random.randint(0, 59))
+        resolved_dt = created_dt + timedelta(minutes=random.randint(15, 300) + int(handling_mins))
+        
+        t_id = f"{prefix}-{ticket_counter:05d}"
+        ticket_counter += 1
+        
+        tickets.append({
+            "ticket_id": t_id,
+            "tenant_id": tenant_id,
+            "title": title,
+            "description": desc,
+            "category": wf_meta.get("category", "Operations"),
+            "priority": random.choice(["Low", "Medium", "High", "Critical"]),
+            "created_at": created_dt.isoformat(),
+            "resolved_at": resolved_dt.isoformat(),
+            "assignee": random.choice(ENGINEERS),
+            "resolution_notes": res_notes,
+            "status": "Closed",
+            "workflow_ground_truth": wf_key,
+            "handling_minutes_ground_truth": handling_mins
+        })
+        
+    for _ in range(num_one_offs):
+        one_off = random.choice(ONE_OFF_TEMPLATES)
+        title, desc, cat, base_mins, res_note = one_off
+        handling_mins = round(max(5.0, random.gauss(base_mins, 8.0)), 1)
+        day_offset = random.randint(0, 90)
+        created_dt = start_date + timedelta(days=day_offset, hours=random.randint(8, 18), minutes=random.randint(0, 59))
+        resolved_dt = created_dt + timedelta(minutes=random.randint(30, 400) + int(handling_mins))
+        
+        t_id = f"{prefix}-{ticket_counter:05d}"
+        ticket_counter += 1
+        
+        tickets.append({
+            "ticket_id": t_id,
+            "tenant_id": tenant_id,
+            "title": title,
+            "description": desc,
+            "category": cat,
+            "priority": random.choice(["Low", "Medium", "High"]),
+            "created_at": created_dt.isoformat(),
+            "resolved_at": resolved_dt.isoformat(),
+            "assignee": random.choice(ENGINEERS),
+            "resolution_notes": res_note,
+            "status": "Closed",
+            "workflow_ground_truth": "ONE_OFF",
+            "handling_minutes_ground_truth": handling_mins
+        })
+        
+    random.shuffle(tickets)
+    return tickets

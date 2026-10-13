@@ -105,12 +105,199 @@ class WorkflowDiscoveryService:
         Ensures consistent, reliable demo behavior without API rate limits or keys.
         """
         combined_text = " ".join([
-            f"{t.get('title', '')} {t.get('description', '')} {t.get('resolution_notes', '')}"
-            for t in sample_tickets
+            f"{t.get('normalized_title', t.get('title', ''))} {t.get('normalized_description', t.get('description', ''))} {t.get('normalized_resolution_notes', t.get('resolution_notes', ''))} {t.get('combined_text', '')}"
+            for t in (sample_tickets or all_cluster_tickets[:5])
         ]).lower()
         
-        # Rule-guided pattern matcher identifying key technical domains
-        if any(w in combined_text for w in ["access", "role", "iam", "permission", "repo", "grant"]):
+        # Specific Enterprise Industry & DevOps Domains First
+        if any(w in combined_text for w in ["sap gui", "sap logon", "sap erp", "sap netweaver", "idoc", "sp01", "sm04", "sm12"]):
+            return {
+                "workflow_name": "SAP ERP Terminal Session Reset & Print Spool Unlock",
+                "description": "Terminating hung SAP GUI user sessions, unlocking locked batch work processes in SM50/SM04, and clearing stalled print queues in SP01.",
+                "common_trigger": "Plant shift workers or finance clerks reporting SAP GUI frozen or barcode bill-of-lading print queues unresponsive.",
+                "typical_resolution_steps": [
+                    "Query SAP transaction SM04 / AL08 to identify hung user session.",
+                    "Terminate orphaned RFC work processes and release table locks via SM12.",
+                    "Inspect TemSe consistency in SP12 and flush stalled spool queues in SP01.",
+                    "Verify user reconnection and successful print queue test output."
+                ],
+                "required_inputs_and_systems": ["SAP NetWeaver", "SAP GUI", "SAP Spool Server", "Active Directory"],
+                "common_exceptions": [
+                    "Batch background job holding database enqueue lock.",
+                    "Physical print server spooler offline."
+                ],
+                "suggested_automation_approach": "SAP RFC / BAPI health daemon monitoring orphaned enqueue locks and auto-canceling hung RFC sessions after 15m idle threshold.",
+                "confidence_explanation": "Strong cluster cohesion around SAP transaction codes (SM04, SM12, SP01) and spool queue mitigation procedures.",
+                "implementation_complexity": "Medium",
+                "complexity_score": 0.35
+            }
+        elif any(w in combined_text for w in ["plc", "scada", "opc-ua", "opc", "modbus"]):
+            return {
+                "workflow_name": "Industrial IoT PLC & SCADA Gateway Telemetry Recovery",
+                "description": "Diagnosing OPC-UA protocol timeout alarms, recycling Moxa/Siemens industrial edge gateways, and resynchronizing plant floor telemetry.",
+                "common_trigger": "SCADA central server loses OPC-UA keep-alive heartbeats from manufacturing plant floor PLCs.",
+                "typical_resolution_steps": [
+                    "Ping edge gateway IP address from OT jumpbox terminal.",
+                    "Inspect OPC-UA endpoint security certificate expiration date.",
+                    "Issue hardware reboot command via Modbus TCP management console.",
+                    "Verify OPC-UA tag telemetry ingestion in Wonderware / Ignition SCADA dashboard."
+                ],
+                "required_inputs_and_systems": ["Wonderware SCADA", "Siemens S7 PLC", "OPC-UA Server", "Moxa Industrial Gateway"],
+                "common_exceptions": [
+                    "Fieldbus physical Ethernet cable severance on assembly line.",
+                    "Outdated PLC firmware rejecting TLS handshake."
+                ],
+                "suggested_automation_approach": "Edge health watchdog agent detecting lost OPC-UA heartbeats and automatically executing soft socket resets before escalating to OT engineers.",
+                "confidence_explanation": "Cohesive recurring pattern of OPC-UA protocol alarms, gateway IP verification, and SCADA tag resumption.",
+                "implementation_complexity": "Medium",
+                "complexity_score": 0.40
+            }
+        elif ("zebra" in combined_text or "barcode" in combined_text) and any(w in combined_text for w in ["scanner", "wlan", "roaming", "bssid", "aisle"]):
+            return {
+                "workflow_name": "Warehouse Zebra Scanner & Industrial Wi-Fi Re-association",
+                "description": "Clearing cache, resetting WPA3-Enterprise certificates, and recovering sticky roaming connections on rugged mobile computers.",
+                "common_trigger": "Logistics pickers reporting handheld barcode scanners losing connection when transitioning between warehouse aisles.",
+                "typical_resolution_steps": [
+                    "Locate scanner MAC address in Cisco Catalyst / Aruba AirWave controller.",
+                    "Disassociate device from sticky fringe access point and force BSSID re-selection.",
+                    "Push updated 802.1X EAP-TLS client certificate via SOTI MobiControl MDM.",
+                    "Verify barcode test scan round-trip latency below 120ms."
+                ],
+                "required_inputs_and_systems": ["Zebra TC57 / MC9300", "SOTI MobiControl MDM", "Aruba AirWave", "WPA3 Enterprise"],
+                "common_exceptions": [
+                    "Scanner battery critically degraded requiring physical depot swap.",
+                    "RFI interference from automated guided vehicles (AGV)."
+                ],
+                "suggested_automation_approach": "Automated Wi-Fi controller webhook triggering 802.11k/v steering prompts when scanner RSSI drops below -75 dBm.",
+                "confidence_explanation": "Identical sequence of warehouse AP roaming checks, MDM profile refreshes, and barcode scan latency tests.",
+                "implementation_complexity": "Low",
+                "complexity_score": 0.20
+            }
+        elif any(w in combined_text for w in ["swift", "mt103", "bic", "fedwire", "chips"]):
+            return {
+                "workflow_name": "SWIFT MT103 High-Value Wire Payment Exception Triage",
+                "description": "Mitigating Alliance Gateway transmission timeouts, re-verifying BIC IBAN routing codes, and clearing stuck Fedwire/CHIPS queues.",
+                "common_trigger": "FinTech payment engine flags MT103 single customer credit transfer stuck in PENDING_DISPATCH over 10 minutes.",
+                "typical_resolution_steps": [
+                    "Inspect SWIFT Alliance Access error log for FIN protocol rejection codes.",
+                    "Validate beneficiary BIC and IBAN checksum against SWIFT Ref Directory.",
+                    "Re-authenticate outbound payload using hardware security module (HSM).",
+                    "Release payment from settlement hold and confirm ACK05 receipt from counterparty."
+                ],
+                "required_inputs_and_systems": ["SWIFT Alliance Gateway", "Finastra Payment Engine", "Fedwire / CHIPS", "HSM"],
+                "common_exceptions": [
+                    "OFAC Sanctions match requiring AML compliance hold.",
+                    "Intermediary bank clearing cut-off time passed."
+                ],
+                "suggested_automation_approach": "Real-time SWIFT exception parser validating IBAN formats and routing codes automatically before submitting to HSM signing queues.",
+                "confidence_explanation": "High cluster density around wire payment protocol codes (MT103, ACK05) and Alliance Access gateway logs.",
+                "implementation_complexity": "High",
+                "complexity_score": 0.45
+            }
+        elif any(w in combined_text for w in ["aml", "sanction", "ofac", "pep"]):
+            return {
+                "workflow_name": "AML Sanctions Screening & False-Positive Clearance",
+                "description": "Investigating automated transaction stops against Dow Jones Watchlist / OFAC lists and clearing false positives using KYC dossier evidence.",
+                "common_trigger": "Transaction monitoring engine flags high-value commercial wire for potential sanctions match.",
+                "typical_resolution_steps": [
+                    "Retrieve transaction matching record from Actimize / Fenergo AML engine.",
+                    "Compare counterparty name, date of birth, and nationality against PEP & OFAC list.",
+                    "Verify secondary identifiers (passport, corporate registry number) against KYC database.",
+                    "Log compliance rationale, digitally sign clearance memo, and release transaction hold."
+                ],
+                "required_inputs_and_systems": ["NICE Actimize", "Fenergo KYC", "Dow Jones Risk & Compliance", "OFAC SDN List"],
+                "common_exceptions": [
+                    "Confirmed true match requiring immediate asset freeze and FinCEN SAR filing.",
+                    "High-risk jurisdiction requiring L3 Compliance Director review."
+                ],
+                "suggested_automation_approach": "Fuzzy string matching and secondary identifier cross-referencing agent auto-clearing false-positives with >99.8% semantic divergence.",
+                "confidence_explanation": "Extremely consistent compliance clearance protocol across sanctions matching, KYC cross-referencing, and signed audit notes.",
+                "implementation_complexity": "High",
+                "complexity_score": 0.45
+            }
+        elif any(w in combined_text for w in ["bloomberg", "b-unit"]):
+            return {
+                "workflow_name": "Bloomberg Professional Terminal Kerberos & B-Unit Unlock",
+                "description": "Mitigating trader biometric lockouts, resetting Kerberos ticket-granting tokens (TGT), and re-syncing Bloomberg B-Unit hardware.",
+                "common_trigger": "Equities or FX trader locked out of Bloomberg launchpad during market pre-open.",
+                "typical_resolution_steps": [
+                    "Verify trader identity via recorded desk phone line and MD approval.",
+                    "Reset Kerberos TGT on Active Directory domain controller.",
+                    "Re-synchronize physical B-Unit biometric fingerprint scanner in Bloomberg Admin portal.",
+                    "Confirm trader sign-in and real-time market data feed operational."
+                ],
+                "required_inputs_and_systems": ["Bloomberg Professional", "Active Directory Kerberos", "Bloomberg B-Unit API"],
+                "common_exceptions": [
+                    "Physical B-Unit battery dead requiring replacement from trading floor depot.",
+                    "Market opened during triage requiring urgent trade delegation."
+                ],
+                "suggested_automation_approach": "Self-service trader biometric re-enrollment bot with automated voice recognition and desk phone verification.",
+                "confidence_explanation": "Cohesive pattern of trading desk urgency, Kerberos TGT tickets, and B-Unit biometric resynchronizations.",
+                "implementation_complexity": "Low",
+                "complexity_score": 0.20
+            }
+        elif any(w in combined_text for w in ["k8s", "crashloop", "oomkilled"]) or ("pod" in combined_text and any(w in combined_text for w in ["evict", "oom", "crash"])):
+            return {
+                "workflow_name": "Kubernetes CrashLoopBackOff & OOMKilled Pod Triage",
+                "description": "Investigating pod evictions, inspecting container exit codes, adjusting memory limits in Helm/GitOps manifests, and stabilizing workloads.",
+                "common_trigger": "Prometheus alert triggers KubePodCrashLooping notification indicating container memory limits breached.",
+                "typical_resolution_steps": [
+                    "Run kubectl logs --previous to capture crash stack trace.",
+                    "Confirm Last State: Terminated with Reason: OOMKilled (Exit Code 137).",
+                    "Update Helm values.yaml memory request and limit in GitOps repository.",
+                    "Trigger ArgoCD / Cloud Build sync and monitor pod restart count."
+                ],
+                "required_inputs_and_systems": ["Kubernetes API", "Prometheus / Grafana", "Helm", "ArgoCD"],
+                "common_exceptions": [
+                    "Underlying node memory pressure requiring node pool auto-scaling.",
+                    "Application memory leak requiring developer hotfix."
+                ],
+                "suggested_automation_approach": "Kubernetes event listener detecting OOMKilled events and automatically drafting a GitOps PR bumping container memory limits by 25%.",
+                "confidence_explanation": "Identical recurring pattern of Exit Code 137, kubectl logs inspection, and Helm values memory tuning.",
+                "implementation_complexity": "Medium",
+                "complexity_score": 0.35
+            }
+        elif any(w in combined_text for w in ["terraform", "state lock", "force-unlock"]):
+            return {
+                "workflow_name": "Terraform State Lock & IaC Drift Remediation",
+                "description": "Investigating stuck apply operations, safely unlocking DynamoDB/GCS state locks, diffing plan outputs, and resolving IaC drift.",
+                "common_trigger": "CI/CD infrastructure pipeline blocked with Error acquiring state lock.",
+                "typical_resolution_steps": [
+                    "Verify no concurrent plan or apply jobs active in CI runner.",
+                    "Validate engineer terminal session and confirm lock is orphaned.",
+                    "Execute terraform force-unlock with target Lock ID.",
+                    "Run terraform plan to verify clean state without unexpected resource destructions."
+                ],
+                "required_inputs_and_systems": ["Terraform Cloud", "AWS DynamoDB", "Google Cloud Storage", "GitHub Actions"],
+                "common_exceptions": [
+                    "Active concurrent apply running requiring abort rather than force unlock.",
+                    "State file corruption requiring backup snapshot restoration."
+                ],
+                "suggested_automation_approach": "CI/CD pre-flight webhook checking runner process tables and auto-clearing orphaned state locks older than 30 minutes.",
+                "confidence_explanation": "High clustering consistency across Terraform lock IDs, force-unlock commands, and plan verifications.",
+                "implementation_complexity": "Low",
+                "complexity_score": 0.20
+            }
+        elif any(w in combined_text for w in ["kafka", "consumer lag", "rebalance", "dlq"]):
+            return {
+                "workflow_name": "Kafka Consumer Group Rebalance Lag & DLQ Message Drain",
+                "description": "Diagnosing partition rebalance storms, clearing dead-letter queue backlogs, and adjusting consumer poll timeouts.",
+                "common_trigger": "Prometheus alert: consumer group falling behind SLA on event topics.",
+                "typical_resolution_steps": [
+                    "Inspect consumer pod metrics for heartbeating thread starvation.",
+                    "Increase max.poll.interval.ms and drain poison-pill messages to DLQ.",
+                    "Upgrade partition assignor to CooperativeStickyAssignor.",
+                    "Verify consumer group caught up and lag normalized to 0."
+                ],
+                "required_inputs_and_systems": ["Apache Kafka", "Confluent Cloud", "Prometheus", "Kubernetes"],
+                "common_exceptions": ["Broker disk saturation requiring partition rebalancing."],
+                "suggested_automation_approach": "Auto-scaling KEDA consumer triggers adjusting partition allocations dynamically.",
+                "confidence_explanation": "Recurring pattern of consumer coordinator rebalances and dead-letter queue purges.",
+                "implementation_complexity": "Medium",
+                "complexity_score": 0.30
+            }
+        # Generic ITSM Service Domains
+        elif any(w in combined_text for w in ["access", "role", "iam", "permission", "repo", "grant"]):
             return {
                 "workflow_name": "Access Provisioning & Permission Requests",
                 "description": "Routine provisioning and permission escalation for corporate IAM roles, cloud datasets, and repository team memberships.",
@@ -194,7 +381,7 @@ class WorkflowDiscoveryService:
                 "implementation_complexity": "Low",
                 "complexity_score": 0.15
             }
-        elif any(w in combined_text for w in ["deploy", "canary", "config", "smoke", "release", "version", "drift"]):
+        elif any(w in combined_text for w in ["deploy", "canary", "config", "smoke", "release", "version"]):
             return {
                 "workflow_name": "Routine Deployment & Configuration Validation",
                 "description": "Post-deployment smoke testing, canary rollout telemetry verification, and configuration drift checks.",

@@ -12,15 +12,23 @@ import {
   FileText,
   UserCheck,
   Check,
-  AlertOctagon
+  AlertOctagon,
+  Share2,
+  AlertTriangle,
+  GitBranch
 } from 'lucide-react';
+import ProcessDiagram from '../components/ProcessDiagram';
+import ExportModal from '../components/ExportModal';
 
-export default function AutomationStudioView({ workflowId }) {
+export default function AutomationStudioView({ workflowId, currentRole = 'Governance Approver' }) {
   const [spec, setSpec] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reviewComments, setReviewComments] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewerName, setReviewerName] = useState('Demo User (DevOps & Security Reviewer)');
+  const [reviewerName, setReviewerName] = useState('Demo Approver (Governance Lead)');
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  const canApprove = currentRole === 'Governance Approver' || currentRole === 'Admin';
 
   const fetchDraft = async () => {
     setLoading(true);
@@ -51,6 +59,10 @@ export default function AutomationStudioView({ workflowId }) {
 
   const handleReviewAction = async (action) => {
     if (!spec) return;
+    if (!canApprove) {
+      alert(`RBAC Permission Denied: Role "${currentRole}" cannot record approval decisions.`);
+      return;
+    }
     setSubmittingReview(true);
     try {
       const res = await fetch(`/api/automations/${spec.draft_id}/review`, {
@@ -59,6 +71,7 @@ export default function AutomationStudioView({ workflowId }) {
         body: JSON.stringify({
           action: action,
           reviewer_name: reviewerName,
+          reviewer_role: currentRole,
           comments: reviewComments || `Recorded ${action} decision via Automation Studio review gate.`
         })
       });
@@ -66,6 +79,9 @@ export default function AutomationStudioView({ workflowId }) {
         const updated = await res.json();
         setSpec(updated);
         setReviewComments('');
+      } else {
+        const errData = await res.json();
+        alert(`Review failed: ${errData.detail || 'Access Denied'}`);
       }
     } catch (err) {
       console.error('Failed to submit review:', err);
@@ -135,16 +151,31 @@ export default function AutomationStudioView({ workflowId }) {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="btn btn-primary btn-sm" onClick={() => setIsExportModalOpen(true)}>
+              <Share2 size={14} /> Multi-Target Exporter
+            </button>
             <button className="btn btn-outline btn-sm" onClick={() => handleExport('markdown')}>
-              <Download size={14} /> Export Markdown
+              <Download size={14} /> Markdown
             </button>
             <button className="btn btn-outline btn-sm" onClick={() => handleExport('json')}>
-              <FileCode size={14} /> Export JSON
+              <FileCode size={14} /> JSON
             </button>
           </div>
         </div>
       </div>
+
+      {/* Interactive BPMN Process Diagram */}
+      <ProcessDiagram 
+        workflowName={spec.workflow_name}
+        triggers={spec.trigger_conditions || ['Incoming high-priority incident']}
+        preconditions={spec.preconditions || ['Verify valid credentials and service reachability']}
+        steps={spec.ordered_steps || []}
+        approvalRequired={spec.human_approval_gate?.required}
+        approvalRole={spec.human_approval_gate?.approval_role}
+        exceptions={spec.exception_handling || ['API rate limit exceeded', 'Health check assertion timeout']}
+        rollbackStrategy={spec.rollback_and_recovery_strategy || 'Revert changes and alert SRE lead'}
+      />
 
       {/* Two Column Layout: Specification Details and Human Review Gate */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '22px' }}>
@@ -260,13 +291,23 @@ export default function AutomationStudioView({ workflowId }) {
               />
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons with RBAC boundary */}
+            {!canApprove && (
+              <div className="alert alert-warning" style={{ fontSize: '0.8rem', padding: '10px 12px', marginBottom: '12px' }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                <span>
+                  <strong>RBAC Restricted:</strong> Active role is <em>"{currentRole}"</em>. Only <strong>Governance Approver</strong> or <strong>Admin</strong> can record human approval decisions.
+                </span>
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <button 
                 className="btn btn-success" 
-                disabled={submittingReview}
+                disabled={submittingReview || !canApprove}
                 onClick={() => handleReviewAction('APPROVED')}
-                style={{ width: '100%' }}
+                style={{ width: '100%', opacity: canApprove ? 1 : 0.6 }}
+                title={canApprove ? "Record approval decision" : "Restricted: Approver or Admin role required"}
               >
                 <CheckCircle size={16} /> Approve Proposal (Record Review Decision)
               </button>
@@ -274,15 +315,17 @@ export default function AutomationStudioView({ workflowId }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <button 
                   className="btn btn-danger" 
-                  disabled={submittingReview}
+                  disabled={submittingReview || !canApprove}
                   onClick={() => handleReviewAction('REJECTED')}
+                  style={{ opacity: canApprove ? 1 : 0.6 }}
                 >
                   <XCircle size={15} /> Reject
                 </button>
                 <button 
                   className="btn btn-outline" 
-                  disabled={submittingReview}
+                  disabled={submittingReview || !canApprove}
                   onClick={() => handleReviewAction('REVISION_REQUESTED')}
+                  style={{ opacity: canApprove ? 1 : 0.6 }}
                 >
                   <RotateCcw size={15} /> Request Revision
                 </button>
@@ -328,6 +371,14 @@ export default function AutomationStudioView({ workflowId }) {
           </div>
         </div>
       </div>
+
+      {/* Multi-Target Export Modal */}
+      <ExportModal 
+        isOpen={isExportModalOpen} 
+        onClose={() => setIsExportModalOpen(false)} 
+        draftId={spec.draft_id} 
+        spec={spec} 
+      />
     </div>
   );
 }

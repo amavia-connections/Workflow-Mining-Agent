@@ -11,7 +11,9 @@ import {
   Server
 } from 'lucide-react';
 
-export default function OverviewView({ summary, onNavigateToWorkflow, onNavigateToStudio }) {
+import MetricTooltip from '../components/MetricTooltip';
+
+export default function OverviewView({ summary, onNavigateToWorkflow, onNavigateToStudio, onOpenDoc }) {
   if (!summary) {
     return <div className="card">Loading overview summary...</div>;
   }
@@ -27,23 +29,36 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <Server size={18} />
           <span>
-            <strong>Application Status:</strong> Operating in{' '}
+            <strong>Tenant Organization:</strong>{' '}
+            <span className="badge badge-green" style={{ marginLeft: '4px', marginRight: '6px' }}>
+              {summary.tenant_name || 'Enterprise Sandbox'}
+            </span>
+            &bull; Operating in{' '}
             <span className="badge badge-purple" style={{ marginLeft: '4px' }}>
               {summary.cloud_mode_enabled ? 'GCP Vertex AI & BigQuery' : 'Deterministic Local Mode (Offline)'}
             </span>
-            {' '}&bull; Active Run ID: <code style={{ fontWeight: 600 }}>{summary.active_run_id}</code>
+            {' '}&bull; Run ID: <code style={{ fontWeight: 600 }}>{summary.active_run_id}</code>
           </span>
         </div>
-        <span style={{ fontSize: '0.8rem', color: '#1e40af' }}>
-          AI identifies patterns &bull; Deterministic SQL calculates numbers &bull; Human approves
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '0.8rem', color: '#1e40af' }}>
+            Deterministic SQL Quantification &bull; Isolated Tenant Data &bull; Human Governance Gate
+          </span>
+        </div>
       </div>
 
       {/* Primary KPI Stats Grid */}
       <div className="stat-grid">
         <div className="stat-card">
           <div className="stat-header">
-            <span className="stat-label">Tickets Analyzed</span>
+            <span className="stat-label">
+              Tickets Analyzed
+              <MetricTooltip 
+                title="Total Tickets Analyzed" 
+                sqlOrigin="SELECT COUNT(*) FROM service_tickets WHERE status = 'Closed'"
+                note="Ingested from ServiceNow, Jira, GitHub, or synthetic benchmark store."
+              />
+            </span>
             <Layers size={18} color="#2563eb" />
           </div>
           <div className="stat-value">{summary.total_tickets_analyzed?.toLocaleString() || '3,000'}</div>
@@ -54,7 +69,15 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
 
         <div className="stat-card">
           <div className="stat-header">
-            <span className="stat-label">Discovered Workflows</span>
+            <span className="stat-label">
+              Discovered Workflows
+              <MetricTooltip 
+                title="Discovered Workflow Clusters" 
+                formula="k clusters where ticket_count >= 10"
+                sqlOrigin="SELECT COUNT(DISTINCT cluster_id) FROM ticket_clusters"
+                note="Separates recurring standardized incident workflows from idiosyncratic noise."
+              />
+            </span>
             <Sparkles size={18} color="#7c3aed" />
           </div>
           <div className="stat-value">{summary.workflows_discovered_count || 6}</div>
@@ -65,7 +88,15 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
 
         <div className="stat-card">
           <div className="stat-header">
-            <span className="stat-label">Monthly Handling Time</span>
+            <span className="stat-label">
+              Monthly Handling Time
+              <MetricTooltip 
+                title="Active Handling Hours / Month" 
+                formula="SUM(active_handling_minutes) / 60 / span_months"
+                sqlOrigin="Deterministic touch-time excluding calendar queue wait idle time."
+                note="Mean Time to Resolution (MTTR) is 80-95% queue idle waiting. Only active handling time is quantified."
+              />
+            </span>
             <Clock size={18} color="#d97706" />
           </div>
           <div className="stat-value">{summary.total_monthly_handling_hours?.toFixed(1) || '0'} <span style={{ fontSize: '1rem', fontWeight: 500 }}>hrs/mo</span></div>
@@ -76,7 +107,15 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
 
         <div className="stat-card">
           <div className="stat-header">
-            <span className="stat-label">Est. Potential Annual Savings</span>
+            <span className="stat-label">
+              Est. Potential Annual Savings
+              <MetricTooltip 
+                title="Potential Annual Financial ROI" 
+                formula="Monthly_Hours * 12 * 0.75 * $65.00/hr"
+                sqlOrigin="SUM(handling_hours_annual) * automatable_ratio * hourly_rate"
+                note="Assumes 75% runbook automation feasibility at standard IT labor rate ($65/hr)."
+              />
+            </span>
             <DollarSign size={18} color="#059669" />
           </div>
           <div className="stat-value" style={{ color: '#059669' }}>

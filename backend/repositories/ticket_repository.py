@@ -30,6 +30,7 @@ class TicketRepository:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS raw_tickets (
                 ticket_id TEXT PRIMARY KEY,
+                tenant_id TEXT DEFAULT 'tenant_demo_sandbox',
                 title TEXT,
                 description TEXT,
                 category TEXT,
@@ -49,6 +50,7 @@ class TicketRepository:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS normalized_tickets (
                 ticket_id TEXT PRIMARY KEY,
+                tenant_id TEXT DEFAULT 'tenant_demo_sandbox',
                 normalized_title TEXT,
                 normalized_description TEXT,
                 normalized_resolution_notes TEXT,
@@ -68,6 +70,13 @@ class TicketRepository:
                 normalized_at TEXT
             )
         """)
+
+        # Backward compatibility migration: add tenant_id column if table already existed
+        for tbl in ["raw_tickets", "normalized_tickets", "discovered_workflows", "analysis_runs"]:
+            try:
+                cur.execute(f"ALTER TABLE {tbl} ADD COLUMN tenant_id TEXT DEFAULT 'tenant_demo_sandbox'")
+            except Exception:
+                pass
         
         # 3. Discovered Workflows
         cur.execute("""
@@ -166,7 +175,7 @@ class TicketRepository:
         conn.commit()
         conn.close()
 
-    def ingest_csv(self, file_path: str, dataset_name: str = "Uploaded Dataset") -> TicketIngestionResult:
+    def ingest_csv(self, file_path: str, dataset_name: str = "Uploaded Dataset", tenant_id: str = "tenant_demo_sandbox") -> TicketIngestionResult:
         """
         Parses, validates, and ingests a CSV dataset of service tickets.
         Ensures ground-truth fields (if present) are quarantined only for evaluation.
@@ -256,7 +265,7 @@ class TicketRepository:
                     active_handling_mins = 15.0
 
             rows_to_insert.append((
-                t_id, title, desc, cat, pri, created, resolved, assignee, res_notes, status,
+                t_id, tenant_id, title, desc, cat, pri, created, resolved, assignee, res_notes, status,
                 gt_wf, gt_mins, now_iso,
                 title.lower(), desc.lower(), res_notes.lower(),
                 f"{title} | {desc} | {res_notes}",
@@ -277,15 +286,15 @@ class TicketRepository:
         # Bulk insert
         cur.executemany("""
             INSERT OR REPLACE INTO raw_tickets 
-            (ticket_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12]) for r in rows_to_insert])
+            (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert])
         
         cur.executemany("""
             INSERT OR REPLACE INTO normalized_tickets
-            (ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [(r[0], r[13], r[14], r[15], r[16], r[3], r[4], r[5], r[6], r[7], r[17], r[9], r[10], r[11], now_iso) for r in rows_to_insert])
+            (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert])
         
         conn.commit()
         conn.close()
@@ -299,7 +308,7 @@ class TicketRepository:
             dataset_name=dataset_name
         )
 
-    def ingest_ticket_records(self, ticket_dicts: List[Dict[str, Any]], dataset_name: str = "Connector Sync") -> TicketIngestionResult:
+    def ingest_ticket_records(self, ticket_dicts: List[Dict[str, Any]], dataset_name: str = "Connector Sync", tenant_id: str = "tenant_demo_sandbox") -> TicketIngestionResult:
         """
         Ingests a list of normalized and sanitized ticket dictionaries directly into the repository.
         """
@@ -326,9 +335,10 @@ class TicketRepository:
             res_notes = str(t.get("resolution_notes", ""))
             status = str(t.get("status", "Closed"))
             active_handling_mins = float(t.get("estimated_active_handling_minutes", 20.0))
+            t_tenant = str(t.get("tenant_id") or tenant_id)
             
             rows_to_insert.append((
-                t_id, title, desc, cat, pri, created, resolved, assignee, res_notes, status,
+                t_id, t_tenant, title, desc, cat, pri, created, resolved, assignee, res_notes, status,
                 None, None, now_iso,
                 title.lower(), desc.lower(), res_notes.lower(),
                 f"{title} | {desc} | {res_notes}",
@@ -349,15 +359,15 @@ class TicketRepository:
         if rows_to_insert:
             cur.executemany("""
                 INSERT OR REPLACE INTO raw_tickets 
-                (ticket_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12]) for r in rows_to_insert])
+                (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert])
             
             cur.executemany("""
                 INSERT OR REPLACE INTO normalized_tickets
-                (ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [(r[0], r[13], r[14], r[15], r[16], r[3], r[4], r[5], r[6], r[7], r[17], r[9], r[10], r[11], now_iso) for r in rows_to_insert])
+                (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert])
 
         conn.commit()
         conn.close()
@@ -370,7 +380,15 @@ class TicketRepository:
             dataset_name=dataset_name
         )
 
-    def get_tickets(self, limit: int = 100, offset: int = 0, category: Optional[str] = None, workflow_id: Optional[str] = None, search: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int]:
+    def get_tickets(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        category: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+        search: Optional[str] = None,
+        tenant_id: Optional[str] = None
+    ) -> Tuple[List[Dict[str, Any]], int]:
         """Queries normalized tickets with pagination and filtering."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -379,6 +397,9 @@ class TicketRepository:
         query = "SELECT * FROM normalized_tickets WHERE 1=1"
         params = []
         
+        if tenant_id:
+            query += " AND tenant_id = ?"
+            params.append(tenant_id)
         if category:
             query += " AND category = ?"
             params.append(category)
@@ -411,7 +432,7 @@ class TicketRepository:
         conn.close()
         return dict(row) if row else None
 
-    def get_all_normalized_tickets_for_clustering(self) -> List[Dict[str, Any]]:
+    def get_all_normalized_tickets_for_clustering(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Retrieves tickets for semantic clustering.
         STRICT SAFETY: Does NOT include eval_ground_truth_workflow or ground-truth minutes!
@@ -419,10 +440,17 @@ class TicketRepository:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("""
-            SELECT ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, estimated_active_handling_minutes
-            FROM normalized_tickets
-        """)
+        if tenant_id:
+            cur.execute("""
+                SELECT ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, estimated_active_handling_minutes, tenant_id
+                FROM normalized_tickets
+                WHERE tenant_id = ?
+            """, (tenant_id,))
+        else:
+            cur.execute("""
+                SELECT ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, estimated_active_handling_minutes, tenant_id
+                FROM normalized_tickets
+            """)
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
         return rows

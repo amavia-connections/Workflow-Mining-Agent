@@ -155,8 +155,13 @@ class FieldMapper:
         # Time worked in ServiceNow
         time_worked = raw_record.get("time_worked") or raw_record.get("calendar_duration")
         handling_minutes = 25.0
-        if isinstance(time_worked, (int, float)):
-            handling_minutes = round(float(time_worked) / 60.0, 1)
+        if time_worked is not None:
+            try:
+                handling_minutes = round(float(time_worked) / 60.0, 1)
+            except (ValueError, TypeError):
+                if resolved_dt and created_dt and resolved_dt > created_dt:
+                    diff_mins = (resolved_dt - created_dt).total_seconds() / 60.0
+                    handling_minutes = min(round(diff_mins, 1), 120.0)
         elif resolved_dt and created_dt and resolved_dt > created_dt:
             diff_mins = (resolved_dt - created_dt).total_seconds() / 60.0
             handling_minutes = min(round(diff_mins, 1), 120.0)

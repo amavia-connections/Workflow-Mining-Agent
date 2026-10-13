@@ -48,3 +48,8 @@ yarn-error.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Project generated artifacts & scratch
+scratch/
+*.pdf
+data/*.db

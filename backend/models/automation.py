@@ -75,4 +75,5 @@ class AutomationSpecification(BaseModel):
 class ReviewRequest(BaseModel):
     action: ApprovalStatus  # APPROVED, REJECTED, REVISION_REQUESTED
     reviewer_name: str = "Demo User (Security & DevOps Reviewer)"
+    reviewer_role: Optional[str] = "Governance Approver"
     comments: Optional[str] = None

@@ -21,14 +21,15 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default: 42)")
     parser.add_argument("--output-csv", type=str, default="data/synthetic_tickets_3000.csv", help="Path to output CSV")
     parser.add_argument("--output-json", type=str, default="data/ground_truth_manifest.json", help="Path to ground truth JSON")
+    parser.add_argument("--include-devops", action="store_true", help="Include 4 DevOps/SRE workflows (total 10 workflows)")
     
     args = parser.parse_args()
     
     os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
     os.makedirs(os.path.dirname(args.output_json), exist_ok=True)
     
-    print(f"Generating {args.count} synthetic tickets with random seed {args.seed}...")
-    tickets, manifest = generate_synthetic_dataset(num_tickets=args.count, seed=args.seed)
+    print(f"Generating {args.count} synthetic tickets with random seed {args.seed} (include_devops={args.include_devops})...")
+    tickets, manifest = generate_synthetic_dataset(num_tickets=args.count, seed=args.seed, include_devops=args.include_devops)
     
     save_dataset_to_csv(tickets, args.output_csv, include_ground_truth=True)
     print(f"Saved dataset with ground truth to {args.output_csv} ({len(tickets)} rows).")

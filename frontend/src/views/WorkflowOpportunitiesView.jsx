@@ -13,6 +13,8 @@ import {
   ChevronRight,
   Info
 } from 'lucide-react';
+import ProcessDiagram from '../components/ProcessDiagram';
+import MetricTooltip from '../components/MetricTooltip';
 
 export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigateToStudio }) {
   const [workflows, setWorkflows] = useState([]);
@@ -157,23 +159,62 @@ export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigat
             {/* Financial & Time Metrics Summary */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
               <div>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Monthly Hours Wasted</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+                  Monthly Hours Wasted
+                  <MetricTooltip 
+                    title="Monthly Handling Hours"
+                    formula="SUM(handling_minutes) / 60 / span_months"
+                    note="Active engineering effort excluding inactive queue waiting time."
+                  />
+                </span>
                 <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{w.metrics.total_handling_hours_per_month} hrs</div>
                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Avg {w.metrics.avg_handling_minutes} min/ticket</div>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Annual Potential Savings</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+                  Annual Potential Savings
+                  <MetricTooltip 
+                    title="Potential Annual Savings"
+                    formula="Monthly_Hours * 12 * 0.75 * $65.00/hr"
+                    note="Calculated via deterministic SQL calculations."
+                  />
+                </span>
                 <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#059669' }}>
                   ${Math.round(w.metrics.potential_annual_cost_savings).toLocaleString()}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#059669' }}>{w.metrics.potential_annual_hours_saved} hours saved</div>
               </div>
               <div>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Priority Score</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+                  Priority Score
+                  <MetricTooltip 
+                    title="4-Factor Opportunity Score"
+                    formula="0.40*Savings + 0.25*Volume + 0.20*Confidence + 0.15*Ease"
+                    note="Weighted algorithm prioritizing highest ROI with feasible runbook complexity."
+                  />
+                </span>
                 <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#2563eb' }}>{w.metrics.priority_score} / 100</div>
                 <div style={{ fontSize: '0.75rem', color: '#2563eb' }}>Complexity: {w.implementation_complexity}</div>
               </div>
             </div>
+
+            {/* Interactive Process Diagram (BPMN / Visualizer) */}
+            <ProcessDiagram 
+              workflowName={w.workflow_name}
+              triggers={[w.common_trigger || 'Repetitive Incident Ingested']}
+              preconditions={['Target service healthy', 'IAM API credentials valid']}
+              steps={(w.typical_resolution_steps || []).map((stepText, idx) => ({
+                step_number: idx + 1,
+                step_name: stepText.length > 35 ? stepText.slice(0, 32) + '...' : stepText,
+                target_system_or_api: w.category || 'Target System',
+                action_description: stepText,
+                is_grounded_in_evidence: true
+              }))}
+              approvalRequired={true}
+              approvalRole="ITSM / DevOps Lead"
+              exceptions={w.common_exceptions || ['Precondition timeout', 'Auth failure']}
+              rollbackStrategy="Revert manifest changes and notify on-call engineer"
+            />
 
             {/* Extracted Runbook Steps */}
             <div>
@@ -211,6 +252,11 @@ export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigat
             <div style={{ background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '14px' }}>
               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Info size={14} /> Transparent Prioritization Ranking Breakdown
+                <MetricTooltip 
+                  title="Ranking Algorithm Weights"
+                  formula="0.40*Savings + 0.25*Recurrence + 0.20*Confidence + 0.15*Ease"
+                  note="Guarantees ranking transparency with zero arbitrary black-box scoring."
+                />
               </span>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '10px', fontSize: '0.8rem' }}>
                 <div style={{ background: '#ffffff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
