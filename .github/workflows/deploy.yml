@@ -1,0 +1,278 @@
+# ==============================================================================
+# CI/CD Pipeline — Workflow Mining Agent
+# AI Builder Cup 2026
+#
+# Branch & Deployment Strategy:
+#   Push to dev  → Quality Gate → Build & Deploy to STAGING (Cloud Run)
+#   Push to main → Quality Gate → Build & Deploy to PRODUCTION (Cloud Run)
+#                  (Gracefully checks & warns if production infra is not yet provisioned)
+#   Pull Request → Quality Gate (Python tests, backend lint, React build check)
+# ==============================================================================
+
+name: CI/CD — Multi-Environment Deployment
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.env.example'
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.env.example'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target GCP Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GCP_REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  IMAGE_NAME: workflow-mining-agent
+
+jobs:
+  # ============================================================================
+  # JOB 1: Test & Quality Gate
+  # ============================================================================
+  quality-gate:
+    name: 🧪 Quality Gate (Backend & Frontend)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Backend Unit & Integration Tests
+        run: |
+          pytest tests/ -v
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package.json
+
+      - name: Build & Validate Frontend Assets
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
+  # ============================================================================
+  # JOB 2: Deploy to Staging (Triggered on push to `dev`)
+  # ============================================================================
+  deploy-staging:
+    name: 🚀 Deploy → Staging Environment
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    if: |
+      github.event_name == 'push' && github.ref == 'refs/heads/dev' ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set Staging Image Tag & Variables
+        id: vars
+        run: |
+          AR_REPO="ar-workflow-mining-staging"
+          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${AR_REPO}/${{ env.IMAGE_NAME }}"
+          echo "image_commit=${IMAGE_TAG}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "image_latest=${IMAGE_TAG}:latest" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.image_commit }}
+            ${{ steps.vars.outputs.image_latest }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to Cloud Run (Staging)
+        id: deploy
+        run: |
+          echo "Deploying image ${{ steps.vars.outputs.image_commit }} to cr-workflow-mining-staging..."
+          gcloud run deploy cr-workflow-mining-staging \
+            --image "${{ steps.vars.outputs.image_commit }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --platform managed
+
+          SERVICE_URL=$(gcloud run services describe cr-workflow-mining-staging \
+            --region "${{ env.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --format "value(status.url)")
+          
+          echo "url=${SERVICE_URL}" >> $GITHUB_OUTPUT
+          echo "### 🚀 Staging Deployment Succeeded" >> $GITHUB_STEP_SUMMARY
+          echo "Cloud Run Service URL: [${SERVICE_URL}](${SERVICE_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "Container Image: \`${{ steps.vars.outputs.image_commit }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # JOB 3: Deploy to Production (Triggered on push to `main`)
+  # ============================================================================
+  deploy-production:
+    name: 🏆 Deploy → Production Environment
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    if: |
+      github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check Production Environment Availability
+        id: check_prod
+        run: |
+          echo "Checking if production Cloud Run service 'cr-workflow-mining-production' exists..."
+          if gcloud run services describe cr-workflow-mining-production --region "${{ env.GCP_REGION }}" --project "${{ secrets.GCP_PROJECT_ID }}" > /dev/null 2>&1; then
+            echo "available=true" >> $GITHUB_OUTPUT
+            echo "Production infrastructure detected. Proceeding with deployment."
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "Production infrastructure is not yet provisioned."
+          fi
+
+      - name: Production Status Notice (When Not Available)
+        if: steps.check_prod.outputs.available == 'false'
+        run: |
+          echo "::warning title=Production Not Available::Production Cloud Run service 'cr-workflow-mining-production' is currently not provisioned. Skipping deployment step until production infrastructure is deployed via Terraform."
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+          ## ⚠️ Production Environment Not Available
+
+          The production deployment pipeline was triggered by a push to `main`, but the production Cloud Run service `cr-workflow-mining-production` is not yet provisioned in GCP project `${{ secrets.GCP_PROJECT_ID }}`.
+
+          ### Next Steps to Provision Production:
+          1. Navigate to the `Workflow-Mining-Infra` repository.
+          2. Run the Terraform production pipeline (`environments/production/main.tf`).
+          3. Once the production infrastructure is deployed, subsequent pushes to `main` will automatically build and deploy the container image here.
+          EOF
+
+      - name: Configure Docker for Artifact Registry (Production)
+        if: steps.check_prod.outputs.available == 'true'
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set Production Image Tags
+        if: steps.check_prod.outputs.available == 'true'
+        id: vars
+        run: |
+          AR_REPO="ar-workflow-mining-production"
+          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${AR_REPO}/${{ env.IMAGE_NAME }}"
+          echo "image_commit=${IMAGE_TAG}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "image_latest=${IMAGE_TAG}:latest" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx (Production)
+        if: steps.check_prod.outputs.available == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Container Image (Production)
+        if: steps.check_prod.outputs.available == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.image_commit }}
+            ${{ steps.vars.outputs.image_latest }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to Cloud Run (Production)
+        if: steps.check_prod.outputs.available == 'true'
+        id: deploy
+        run: |
+          echo "Deploying to Cloud Run service cr-workflow-mining-production..."
+          gcloud run deploy cr-workflow-mining-production \
+            --image "${{ steps.vars.outputs.image_commit }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --platform managed
+
+          SERVICE_URL=$(gcloud run services describe cr-workflow-mining-production \
+            --region "${{ env.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --format "value(status.url)")
+
+          echo "url=${SERVICE_URL}" >> $GITHUB_OUTPUT
+          echo "### 🏆 Production Deployment Succeeded" >> $GITHUB_STEP_SUMMARY
+          echo "Cloud Run Service URL: [${SERVICE_URL}](${SERVICE_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "Container Image: \`${{ steps.vars.outputs.image_commit }}\`" >> $GITHUB_STEP_SUMMARY

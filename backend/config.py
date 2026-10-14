@@ -6,8 +6,17 @@ Supports both GCP Cloud Mode (Vertex AI, BigQuery) and Local Demo Mode (determin
 """
 
 import os
+from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+# Automatically load environment variables from .env in repo root or current dir
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(dotenv_path=_env_path, override=False)
+else:
+    load_dotenv(override=False)
 
 
 class Settings(BaseModel):
