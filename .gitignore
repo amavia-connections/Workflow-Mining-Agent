@@ -1,3 +1,6 @@
+# Infrastructure (Terraform) — managed in workflow-mining-infra repo
+deploy/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -53,3 +56,18 @@ Thumbs.db
 scratch/
 *.pdf
 data/*.db
+
+# Generated synthetic datasets (created by scripts/generate_data.py)
+# Run: python scripts/generate_data.py --count 3000 --seed 42
+data/*.csv
+data/*.json
+
+# Terraform state — NEVER commit these
+deploy/terraform/.terraform/
+deploy/terraform/*.tfstate
+deploy/terraform/*.tfstate.backup
+deploy/terraform/.terraform.lock.hcl
+deploy/terraform/tfplan
+deploy/terraform/*.tfvars
+# Keep the example tfvars template
+!deploy/terraform/*.tfvars.example
