@@ -1,0 +1,4 @@
+# This directory stores generated datasets.
+# The actual CSV/JSON files are gitignored.
+# To generate the dataset locally run:
+#   python scripts/generate_data.py --count 3000 --seed 42

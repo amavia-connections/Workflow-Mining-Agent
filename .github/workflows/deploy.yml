@@ -1,0 +1,252 @@
+# ==============================================================================
+# CD Pipeline — Workflow Mining Agent
+# AI Builder Cup 2026
+#
+# Flow:
+#   Push to main → Build & push Docker image to Artifact Registry
+#                → Deploy to STAGING Cloud Run (automatic)
+#                → Manual Approval Gate (GitHub Environment Protection Rule)
+#                → Deploy to PRODUCTION Cloud Run (manual promotion)
+#
+# Authentication: Workload Identity Federation (keyless — no JSON key stored)
+# ─────────────────────────────────────────────────────────────────────────────
+# SETUP CHECKLIST (for GCP team member):
+#
+#   1. Create a Workload Identity Pool & Provider:
+#      https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines#github
+#
+#   2. Grant the WIF Service Account these roles:
+#      - roles/run.admin
+#      - roles/iam.serviceAccountUser
+#      - roles/artifactregistry.writer
+#
+#   3. Create an Artifact Registry Docker repository named $AR_REPO_NAME
+#
+#   4. Set these GitHub repository secrets (Settings → Secrets → Actions):
+#      GCP_PROJECT_ID           → your GCP project ID
+#      GCP_REGION               → us-central1 (or your preferred region)
+#      AR_REPO_NAME             → your Artifact Registry repo name
+#      WIF_PROVIDER             → projects/<NUM>/locations/global/workloadIdentityPools/<POOL>/providers/<PROVIDER>
+#      WIF_SERVICE_ACCOUNT      → <SA_NAME>@<PROJECT>.iam.gserviceaccount.com
+#
+#   5. Create two GitHub Environments (Settings → Environments):
+#      - "staging"    → No protection rules (auto-deploy)
+#      - "production" → Required reviewers: add your team members
+#        This creates the manual approval gate before prod deployment.
+# ==============================================================================
+
+name: CD — Build, Push & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment to deploy to
+        required: true
+        default: staging
+        type: choice
+        options: [staging, production]
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false   # Never cancel an in-progress deployment
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  # ============================================================
+  # JOB 1: Build Docker Image & Push to Artifact Registry
+  # ============================================================
+  build-and-push:
+    name: 🐳 Build & Push Docker Image
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_uri: ${{ steps.build.outputs.image_uri }}
+      short_sha:  ${{ steps.meta.outputs.short_sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Compute image metadata
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+          # ── TODO (GCP team member): Replace with your Artifact Registry host ──
+          # Format: <region>-docker.pkg.dev/<project>/<repo>/<image>
+          IMAGE_URI="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/workflow-mining-agent"
+          echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+
+      # ── Authenticate to Google Cloud via Workload Identity Federation ─────────
+      # TODO (GCP team member): Populate WIF_PROVIDER and WIF_SERVICE_ACCOUNT secrets
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Generate synthetic data inside Docker build (avoids committing CSV) ──
+      - name: Build & push multi-stage Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_uri }}:${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_uri }}:latest
+          cache-from: type=registry,ref=${{ steps.meta.outputs.image_uri }}:buildcache
+          cache-to:   type=registry,ref=${{ steps.meta.outputs.image_uri }}:buildcache,mode=max
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+
+      - name: Output image URI
+        run: |
+          echo "### 🐳 Docker Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ steps.meta.outputs.image_uri }}:${{ steps.meta.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # JOB 2: Deploy to STAGING (automatic on every push to main)
+  # ============================================================
+  deploy-staging:
+    name: 🚀 Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+
+    env:
+      CLOUD_RUN_SERVICE_STAGING: workflow-mining-agent-staging
+      IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
+      SHORT_SHA: ${{ needs.build-and-push.outputs.short_sha }}
+
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy to Cloud Run — Staging
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.CLOUD_RUN_SERVICE_STAGING }}
+          image:   ${{ env.IMAGE_URI }}:${{ env.SHORT_SHA }}
+          region:  ${{ secrets.GCP_REGION }}
+          flags: >-
+            --platform=managed
+            --allow-unauthenticated
+            --memory=2Gi
+            --cpu=2
+            --min-instances=0
+            --max-instances=3
+            --concurrency=80
+          env_vars: >-
+            APP_MODE=CLOUD,
+            GOOGLE_CLOUD_PROJECT=${{ secrets.GCP_PROJECT_ID }},
+            BIGQUERY_DATASET=workflow_mining,
+            ENVIRONMENT=staging
+
+      - name: Show staging URL
+        run: |
+          echo "### 🌿 Staging Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA:** \`${{ env.SHORT_SHA }}\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Smoke-test staging health endpoint
+        run: |
+          sleep 10  # Allow Cloud Run cold start
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Staging health check failed with HTTP $STATUS"
+            exit 1
+          fi
+          echo "✅ Staging health check passed (HTTP $STATUS)"
+
+  # ============================================================
+  # JOB 3: Manual Approval Gate → Production
+  # (Requires a reviewer to approve in GitHub Environments)
+  # ============================================================
+  deploy-production:
+    name: 🏁 Deploy → Production  [Manual Approval Required]
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment:
+      name: production              # GitHub environment with required reviewers
+      url: ${{ steps.deploy.outputs.url }}
+
+    env:
+      CLOUD_RUN_SERVICE_PROD: workflow-mining-agent
+      IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
+      SHORT_SHA: ${{ needs.build-and-push.outputs.short_sha }}
+
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy to Cloud Run — Production
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.CLOUD_RUN_SERVICE_PROD }}
+          image:   ${{ env.IMAGE_URI }}:${{ env.SHORT_SHA }}
+          region:  ${{ secrets.GCP_REGION }}
+          flags: >-
+            --platform=managed
+            --allow-unauthenticated
+            --memory=2Gi
+            --cpu=2
+            --min-instances=1
+            --max-instances=10
+            --concurrency=80
+          env_vars: >-
+            APP_MODE=CLOUD,
+            GOOGLE_CLOUD_PROJECT=${{ secrets.GCP_PROJECT_ID }},
+            BIGQUERY_DATASET=workflow_mining,
+            ENVIRONMENT=production
+
+      - name: Smoke-test production health endpoint
+        run: |
+          sleep 10
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Production health check failed with HTTP $STATUS"
+            exit 1
+          fi
+          echo "✅ Production health check passed (HTTP $STATUS)"
+
+      - name: Deployment summary
+        run: |
+          echo "### 🏁 Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA:** \`${{ env.SHORT_SHA }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Approved by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
