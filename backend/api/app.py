@@ -262,7 +262,10 @@ def ensure_tenant_pipeline(tenant_id: str) -> str:
     run_id = f"RUN-{tenant_id.replace('tenant_', '').upper()}-001"
     tenant_runs[tenant_id] = run_id
     active_run_id = run_id
-    
+
+    if run_id in analysis_jobs and analysis_jobs[run_id].get("status") in ("RUNNING", "COMPLETED"):
+        return run_id
+
     tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id)
     if not tickets:
         # Check if system was explicitly reset by user
@@ -323,12 +326,15 @@ def ensure_tenant_pipeline(tenant_id: str) -> str:
 
 @app.on_event("startup")
 def startup_event():
-    """Ensure active tenant is pre-warmed on server startup so the dashboard is never blank."""
-    try:
-        active_t = tenant_manager.get_active_tenant()["tenant_id"]
-        ensure_tenant_pipeline(active_t)
-    except Exception as ex:
-        print(f"[Startup Warning] Warm-up pipeline failed: {ex}")
+    """Start asynchronous background warm-up so uvicorn binds port 8080 immediately for Cloud Run health checks."""
+    def _bg_warmup():
+        try:
+            active_t = tenant_manager.get_active_tenant()["tenant_id"]
+            ensure_tenant_pipeline(active_t)
+        except Exception as ex:
+            print(f"[Startup Warning] Warm-up pipeline failed: {ex}")
+
+    threading.Thread(target=_bg_warmup, daemon=True).start()
 
 
 @app.post("/api/system/reset-tickets")
