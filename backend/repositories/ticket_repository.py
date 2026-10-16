@@ -419,7 +419,16 @@ class TicketRepository:
         query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
         cur.execute(query, params)
-        rows = [dict(r) for r in cur.fetchall()]
+        raw_rows = [dict(r) for r in cur.fetchall()]
+        rows = []
+        for d in raw_rows:
+            if not d.get("title"):
+                d["title"] = d.get("normalized_title", "")
+            if not d.get("description"):
+                d["description"] = d.get("normalized_description", "")
+            if not d.get("resolution_notes"):
+                d["resolution_notes"] = d.get("normalized_resolution_notes", "")
+            rows.append(d)
         conn.close()
         return rows, total
 
@@ -430,7 +439,16 @@ class TicketRepository:
         cur.execute("SELECT * FROM normalized_tickets WHERE ticket_id = ?", (ticket_id,))
         row = cur.fetchone()
         conn.close()
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        if not d.get("title"):
+            d["title"] = d.get("normalized_title", "")
+        if not d.get("description"):
+            d["description"] = d.get("normalized_description", "")
+        if not d.get("resolution_notes"):
+            d["resolution_notes"] = d.get("normalized_resolution_notes", "")
+        return d
 
     def get_all_normalized_tickets_for_clustering(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """

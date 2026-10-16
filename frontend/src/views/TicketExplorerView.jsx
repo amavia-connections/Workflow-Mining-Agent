@@ -232,7 +232,7 @@ export default function TicketExplorerView({ onNavigateToWorkflow }) {
                   </span>
                   <span className="badge badge-gray">{selectedTicket.category}</span>
                 </div>
-                <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>{selectedTicket.title}</h2>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>{selectedTicket.title || selectedTicket.normalized_title}</h2>
               </div>
               <button 
                 onClick={() => setSelectedTicket(null)}
@@ -261,16 +261,16 @@ export default function TicketExplorerView({ onNavigateToWorkflow }) {
             {/* Description */}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Description</label>
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginTop: '4px', fontSize: '0.9rem' }}>
-                {selectedTicket.description || 'No description provided.'}
+              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginTop: '4px', fontSize: '0.9rem', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                {selectedTicket.description || selectedTicket.normalized_description || 'No description provided.'}
               </div>
             </div>
 
             {/* Resolution Notes */}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Engineer Resolution Notes</label>
-              <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '6px', border: '1px solid #a7f3d0', marginTop: '4px', fontSize: '0.9rem', color: '#065f46' }}>
-                {selectedTicket.resolution_notes || 'Resolved according to standard procedures.'}
+              <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '6px', border: '1px solid #a7f3d0', marginTop: '4px', fontSize: '0.9rem', color: '#065f46', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                {selectedTicket.resolution_notes || selectedTicket.normalized_resolution_notes || 'Resolved according to standard procedures.'}
               </div>
             </div>
 
