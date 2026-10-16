@@ -346,7 +346,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
       {/* SUB-TAB 1: CONNECTORS & INTEGRATION CATALOG */}
       {activeSubTab === 'connectors' && (() => {
         const connectedCount = Object.values(liveConnectors).filter(
-          c => (c.last_sync_status === 'SUCCESS' || c.last_sync_status === 'CONNECTED') && (c.total_tickets_synced > 0 || c.last_synced_at)
+          c => (c.last_sync_status === 'SUCCESS' || c.last_sync_status === 'CONNECTED')
         ).length;
         const totalTicketsFromConnectors = Object.values(liveConnectors).reduce(
           (acc, c) => acc + (c.total_tickets_synced || 0), 0
@@ -428,7 +428,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
               {filteredCatalog.map(connector => {
                 const live = liveConnectors[connector.id];
                 const isConnected = live 
-                  ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') && (live.total_tickets_synced > 0 || live.last_synced_at)
+                  ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED')
                   : false;
                 const isFailed = live ? live.last_sync_status === 'FAILED' : false;
                 const displayStatus = isConnected ? 'Connected' : (isFailed ? 'Error' : 'Disconnected');

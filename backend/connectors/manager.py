@@ -67,7 +67,7 @@ class ConnectorManager:
             auth_type=AuthType.API_TOKEN,
             username_or_email="cloud-admin@enterprise.demo",
             api_token_or_secret="demo-token-masked-xxxx",
-            query_filter="project = 'IT' AND status IN ('Closed', 'Resolved') ORDER BY updated DESC",
+            query_filter="ORDER BY updated DESC",
             icon_key="jira",
             last_sync_status=SyncStatus.IDLE
         ))
@@ -391,6 +391,8 @@ class ConnectorManager:
             cfg.last_sync_status = SyncStatus.SUCCESS
             cfg.last_sync_message = f"Synchronized {ingest_res.valid_records} tickets in {dur}s."
             cfg.total_tickets_synced += ingest_res.valid_records
+            # Persist updated configuration, credentials & status back to manager!
+            self._connectors[connector_id] = cfg
 
             summary = SyncSummary(
                 connector_id=connector_id,
@@ -411,6 +413,7 @@ class ConnectorManager:
             cfg.last_synced_at = datetime.utcnow()
             cfg.last_sync_status = SyncStatus.FAILED
             cfg.last_sync_message = str(e)
+            self._connectors[connector_id] = cfg
 
             summary = SyncSummary(
                 connector_id=connector_id,

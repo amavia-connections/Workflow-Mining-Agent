@@ -22,7 +22,11 @@ from backend.models.connector import ConnectorConfig, AuthType
 class JiraConnector(BaseConnector):
     def __init__(self, config: ConnectorConfig):
         super().__init__(config)
-        self.base_url = config.base_url.rstrip("/")
+        raw_url = config.base_url.strip().rstrip("/")
+        if "atlassian.net" in raw_url:
+            self.base_url = raw_url.split("atlassian.net")[0] + "atlassian.net"
+        else:
+            self.base_url = raw_url
         self.headers = {
             "Accept": "application/json",
             "Content-Type": "application/json"
@@ -88,26 +92,33 @@ class JiraConnector(BaseConnector):
 
     def fetch_raw_tickets(self, max_records: int = 100, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """
-        Executes JQL search query to fetch closed issues.
+        Executes JQL search query to fetch issues from Jira Cloud or Data Center.
         """
         # If simulated demo mode, return synthetic Jira structures
         if "mock" in self.base_url.lower() or "demo" in self.base_url.lower():
             return self._generate_simulated_jira_issues(max_records)
 
-        jql = self.config.query_filter or "status in (Closed, Resolved, Done) ORDER BY updated DESC"
+        # Universal JQL query: do NOT restrict to demo project 'IT'
+        raw_jql = (self.config.query_filter or "").strip()
+        if not raw_jql or "project = 'IT'" in raw_jql or "project='IT'" in raw_jql:
+            jql = "ORDER BY updated DESC"
+        else:
+            jql = raw_jql
+
         if since:
             since_str = since.strftime("%Y-%m-%d %H:%M")
-            jql = f"({jql}) AND updated >= '{since_str}'"
+            if jql.startswith("ORDER BY"):
+                jql = f"updated >= '{since_str}' {jql}"
+            else:
+                jql = f"({jql}) AND updated >= '{since_str}'"
 
         all_issues = []
         start_at = 0
         batch_size = min(max_records, 50)
-
-        # Jira v3 endpoint
         search_url = f"{self.base_url}/rest/api/3/search"
 
         try:
-            with httpx.Client(timeout=25.0) as client:
+            with httpx.Client(timeout=30.0) as client:
                 while len(all_issues) < max_records:
                     payload = {
                         "jql": jql,
@@ -120,13 +131,36 @@ class JiraConnector(BaseConnector):
                         ]
                     }
                     resp = client.post(search_url, headers=self.headers, json=payload)
+                    
+                    # 1. Fallback if API v3 is not available (Data Center / Server)
                     if resp.status_code == 404:
-                        # Fallback to v2
                         search_url = f"{self.base_url}/rest/api/2/search"
                         resp = client.post(search_url, headers=self.headers, json=payload)
 
+                    # 2. Fallback if JQL was rejected (HTTP 400 Bad Request)
+                    if resp.status_code == 400 and jql != "ORDER BY updated DESC":
+                        jql = "ORDER BY updated DESC"
+                        payload["jql"] = jql
+                        resp = client.post(search_url, headers=self.headers, json=payload)
+
+                    # 3. Fallback to empty JQL if still rejected
+                    if resp.status_code == 400:
+                        payload.pop("jql", None)
+                        resp = client.post(search_url, headers=self.headers, json=payload)
+
+                    # 4. Fallback to GET method if POST is disallowed or returned an error
                     if resp.status_code != 200:
-                        raise ConnectorConnectionError(f"Jira search failed with status {resp.status_code}: {resp.text[:200]}")
+                        get_params = {
+                            "startAt": start_at,
+                            "maxResults": batch_size,
+                            "fields": "summary,description,issuetype,priority,created,resolutiondate,resolution,assignee,status,timespent,comment"
+                        }
+                        if jql:
+                            get_params["jql"] = jql
+                        resp = client.get(search_url, headers=self.headers, params=get_params)
+
+                    if resp.status_code != 200:
+                        raise ConnectorConnectionError(f"Jira search failed with status {resp.status_code}: {resp.text[:250]}")
 
                     res_json = resp.json()
                     issues = res_json.get("issues", [])
@@ -136,12 +170,13 @@ class JiraConnector(BaseConnector):
                     all_issues.extend(issues)
                     start_at += len(issues)
 
-                    if start_at >= res_json.get("total", 0):
+                    total_in_jira = res_json.get("total", len(issues))
+                    if start_at >= total_in_jira:
                         break
 
             return all_issues[:max_records]
         except httpx.RequestError as e:
-            raise ConnectorConnectionError(f"Network error querying Jira: {str(e)}")
+            raise ConnectorConnectionError(f"Network error querying Jira at {self.base_url}: {str(e)}")
 
     def normalize_raw_ticket(self, raw_ticket: Dict[str, Any]) -> Dict[str, Any]:
         return self.mapper.map_jira_issue(raw_ticket)

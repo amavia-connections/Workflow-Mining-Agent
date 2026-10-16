@@ -169,7 +169,9 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
         })
       });
       const data = await res.json();
-      if (!res.ok || data.status === 'failed') {
+      const statusUpper = (data.status || '').toUpperCase();
+      const isFailed = !res.ok || statusUpper === 'FAILED' || data.error_message || (data.errors && data.errors.length > 0 && data.tickets_ingested === 0);
+      if (isFailed) {
         const errMsg = data.error_message || data.detail || (data.errors && data.errors[0]) || 'Failed to sync with remote instance.';
         setTimeout(() => {
           setSyncProgress(100);
@@ -182,9 +184,13 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
       setTimeout(() => {
         setSyncProgress(100);
         const count = data.tickets_ingested !== undefined ? data.tickets_ingested : (data.ingested_count !== undefined ? data.ingested_count : 0);
-        setSyncStatusText(`Sync complete! Ingested ${count} tickets safely.`);
+        if (count === 0) {
+          setSyncStatusText('Sync finished: 0 tickets found matching query in your Jira instance. Please check your project issues or date range.');
+        } else {
+          setSyncStatusText(`Sync complete! Ingested ${count} tickets safely.`);
+        }
         setIsSyncing(false);
-        setSyncSuccess(true);
+        setSyncSuccess(count > 0);
         if (onSyncCompleted) onSyncCompleted(data);
       }, 1800);
     } catch (err) {
