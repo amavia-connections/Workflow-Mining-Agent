@@ -1,6 +1,135 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, Eye, X, ArrowLeft, ArrowRight, FileText, CheckCircle, Tag } from 'lucide-react';
 
+function FormattedTicketDescription({ text, isLight = false }) {
+  if (!text) {
+    return <span style={{ color: isLight ? '#059669' : '#94a3b8', fontStyle: 'italic' }}>No content provided.</span>;
+  }
+
+  let content = String(text).trim();
+
+  // If text is in raw JSON ADF string format, parse it
+  if (content.startsWith('{"type"') && content.includes('"content"')) {
+    try {
+      const parsed = JSON.parse(content);
+      const extractAdf = (node) => {
+        if (!node) return '';
+        if (node.type === 'text') return node.text || '';
+        if (node.type === 'heading') {
+          const h = (node.content || []).map(extractAdf).join('').trim();
+          return `\n\n### ${h}\n`;
+        }
+        if (node.type === 'paragraph') {
+          return (node.content || []).map(extractAdf).join('').trim() + '\n';
+        }
+        if (node.type === 'bulletList') {
+          return (node.content || []).map(item => `• ${(item.content || []).map(extractAdf).join('').trim()}`).join('\n') + '\n';
+        }
+        if (node.type === 'orderedList') {
+          return (node.content || []).map((item, idx) => `${idx + 1}. ${(item.content || []).map(extractAdf).join('').trim()}`).join('\n') + '\n';
+        }
+        if (node.content) return node.content.map(extractAdf).join('');
+        return '';
+      };
+      content = extractAdf(parsed).trim();
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // If text doesn't contain newlines, detect sections like "context", "scope / to do", etc.
+  if (!content.includes('\n')) {
+    content = content
+      .replace(/\b(scope\s*\/\s*to\s*do|scope|to\s*do|acceptance\s*criteria)\s*[:.-]?\s*/gi, '\n\n### Scope / To do\n')
+      .replace(/\b(context|background|problem\s*statement)\s*[:.-]?\s*/gi, '\n\n### Context\n')
+      .replace(/\b(resolution|mitigation|notes)\s*[:.-]?\s*/gi, '\n\n### Notes\n');
+  }
+
+  const lines = content.split(/\r?\n/);
+  const elements = [];
+  let currentBullets = [];
+
+  const flushBullets = (keyPrefix) => {
+    if (currentBullets.length > 0) {
+      elements.push(
+        <ul 
+          key={`bullets-${keyPrefix}`} 
+          style={{ 
+            margin: '6px 0 14px 0', 
+            paddingLeft: '22px', 
+            listStyleType: 'disc',
+            color: isLight ? '#059669' : '#94a3b8' 
+          }}
+        >
+          {currentBullets.map((item, bIdx) => (
+            <li key={bIdx} style={{ marginBottom: '5px', color: isLight ? '#065f46' : '#e2e8f0', fontSize: '0.88rem', lineHeight: '1.55' }}>
+              <span style={{ color: isLight ? '#065f46' : '#f8fafc' }}>{item}</span>
+            </li>
+          ))}
+        </ul>
+      );
+      currentBullets = [];
+    }
+  };
+
+  lines.forEach((rawLine, idx) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushBullets(idx);
+      return;
+    }
+
+    // Check if line is bullet item (•, -, *, or numbered)
+    const bulletMatch = line.match(/^([•\-\*]|\d+\.)\s+(.+)$/);
+    if (bulletMatch) {
+      currentBullets.push(bulletMatch[2]);
+      return;
+    }
+
+    // Check if line is a heading
+    const isMdHeading = line.startsWith('#') || line.match(/^h[1-6]\.\s*/i);
+    const isKeywordHeading = /^(context|scope\s*\/?\s*to\s*do|summary|steps\s*to\s*reproduce|resolution\s*notes|acceptance\s*criteria|background|to\s*do|scope)$/i.test(line.replace(/[:.-]$/, '').trim());
+
+    if (isMdHeading || isKeywordHeading) {
+      flushBullets(idx);
+      const cleanTitle = line
+        .replace(/^[#\s]+/, '')
+        .replace(/^h[1-6]\.\s*/i)
+        .replace(/[:.-]$/, '')
+        .trim();
+
+      elements.push(
+        <div 
+          key={`h-${idx}`} 
+          style={{ 
+            fontWeight: 700, 
+            fontSize: '0.96rem', 
+            color: isLight ? '#065f46' : '#f8fafc', 
+            marginTop: elements.length > 0 ? '16px' : '2px', 
+            marginBottom: '6px',
+            letterSpacing: '0.01em'
+          }}
+        >
+          {cleanTitle}
+        </div>
+      );
+      return;
+    }
+
+    // Standard paragraph line
+    flushBullets(idx);
+    elements.push(
+      <p key={`p-${idx}`} style={{ margin: '0 0 10px 0', color: isLight ? '#047857' : '#cbd5e1', fontSize: '0.88rem', lineHeight: '1.6' }}>
+        {line}
+      </p>
+    );
+  });
+
+  flushBullets('final');
+
+  return elements.length > 0 ? elements : <p style={{ margin: 0, color: isLight ? '#065f46' : '#e2e8f0' }}>{text}</p>;
+}
+
 export default function TicketExplorerView({ onNavigateToWorkflow }) {
   const [tickets, setTickets] = useState([]);
   const [total, setTotal] = useState(0);
@@ -259,18 +388,36 @@ export default function TicketExplorerView({ onNavigateToWorkflow }) {
             </div>
 
             {/* Description */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Description</label>
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginTop: '4px', fontSize: '0.9rem', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                {selectedTicket.description || selectedTicket.normalized_description || 'No description provided.'}
+            <div style={{ marginBottom: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Description
+                </label>
+                <span className="badge badge-purple" style={{ fontSize: '0.68rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <FileText size={11} /> Structured ADF Format
+                </span>
+              </div>
+              <div 
+                style={{ 
+                  background: '#1e293b', 
+                  padding: '16px 20px', 
+                  borderRadius: '8px', 
+                  border: '1px solid #334155',
+                  boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)',
+                  minHeight: '80px'
+                }}
+              >
+                <FormattedTicketDescription text={selectedTicket.description || selectedTicket.normalized_description} />
               </div>
             </div>
 
             {/* Resolution Notes */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Engineer Resolution Notes</label>
-              <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '6px', border: '1px solid #a7f3d0', marginTop: '4px', fontSize: '0.9rem', color: '#065f46', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                {selectedTicket.resolution_notes || selectedTicket.normalized_resolution_notes || 'Resolved according to standard procedures.'}
+            <div style={{ marginBottom: '18px' }}>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#047857', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Engineer Resolution Notes
+              </label>
+              <div style={{ background: '#ecfdf5', padding: '14px 18px', borderRadius: '8px', border: '1px solid #a7f3d0', marginTop: '6px', fontSize: '0.88rem', color: '#065f46', lineHeight: '1.6' }}>
+                <FormattedTicketDescription text={selectedTicket.resolution_notes || selectedTicket.normalized_resolution_notes || 'Resolved according to standard procedures.'} isLight={true} />
               </div>
             </div>
 

@@ -267,7 +267,7 @@ class TicketRepository:
             rows_to_insert.append((
                 t_id, tenant_id, title, desc, cat, pri, created, resolved, assignee, res_notes, status,
                 gt_wf, gt_mins, now_iso,
-                title.lower(), desc.lower(), res_notes.lower(),
+                title, desc, res_notes,
                 f"{title} | {desc} | {res_notes}",
                 active_handling_mins
             ))
@@ -340,7 +340,7 @@ class TicketRepository:
             rows_to_insert.append((
                 t_id, t_tenant, title, desc, cat, pri, created, resolved, assignee, res_notes, status,
                 None, None, now_iso,
-                title.lower(), desc.lower(), res_notes.lower(),
+                title, desc, res_notes,
                 f"{title} | {desc} | {res_notes}",
                 active_handling_mins
             ))

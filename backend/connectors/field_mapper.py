@@ -181,12 +181,92 @@ class FieldMapper:
         }
 
     def _extract_text_from_adf(self, adf_node: Any) -> str:
-        """Recursively parses Atlassian Document Format JSON into plain text."""
+        """
+        Recursively parses Atlassian Document Format (ADF) JSON into structured,
+        human-readable text preserving headings, paragraphs, and bullet lists.
+        """
         if not isinstance(adf_node, dict):
-            return str(adf_node)
-        text_bits = []
-        if adf_node.get("type") == "text":
-            return adf_node.get("text", "")
-        for child in adf_node.get("content", []):
-            text_bits.append(self._extract_text_from_adf(child))
-        return " ".join(t for t in text_bits if t)
+            if isinstance(adf_node, str) and ('"type"' in adf_node and '"content"' in adf_node):
+                try:
+                    import json
+                    parsed = json.loads(adf_node)
+                    if isinstance(parsed, dict):
+                        return self._extract_text_from_adf(parsed)
+                except Exception:
+                    pass
+            return str(adf_node) if adf_node is not None else ""
+
+        node_type = adf_node.get("type")
+
+        # 1. Text node with marks (bold, italic, code)
+        if node_type == "text":
+            text = adf_node.get("text", "")
+            for mark in adf_node.get("marks", []):
+                m_type = mark.get("type")
+                if m_type == "strong":
+                    text = f"**{text}**"
+                elif m_type == "em":
+                    text = f"*{text}*"
+                elif m_type == "code":
+                    text = f"`{text}`"
+            return text
+
+        if node_type == "hardBreak":
+            return "\n"
+
+        content = adf_node.get("content", [])
+
+        # 2. Document root
+        if node_type == "doc":
+            parts = [self._extract_text_from_adf(c).strip() for c in content]
+            return "\n\n".join(p for p in parts if p)
+
+        # 3. Headings (e.g. Context, Scope / To do)
+        if node_type == "heading":
+            heading_text = "".join(self._extract_text_from_adf(c) for c in content).strip()
+            return f"### {heading_text}"
+
+        # 4. Paragraphs
+        if node_type == "paragraph":
+            return "".join(self._extract_text_from_adf(c) for c in content).strip()
+
+        # 5. Bullet Lists
+        if node_type == "bulletList":
+            items = []
+            for item in content:
+                if item.get("type") == "listItem":
+                    item_text = "\n".join(self._extract_text_from_adf(c).strip() for c in item.get("content", []))
+                    items.append(f"• {item_text}")
+                else:
+                    items.append(f"• {self._extract_text_from_adf(item).strip()}")
+            return "\n".join(items)
+
+        # 6. Ordered Lists
+        if node_type == "orderedList":
+            items = []
+            for i, item in enumerate(content, 1):
+                if item.get("type") == "listItem":
+                    item_text = "\n".join(self._extract_text_from_adf(c).strip() for c in item.get("content", []))
+                    items.append(f"{i}. {item_text}")
+                else:
+                    items.append(f"{i}. {self._extract_text_from_adf(item).strip()}")
+            return "\n".join(items)
+
+        # 7. Code Blocks
+        if node_type == "codeBlock":
+            code = "".join(self._extract_text_from_adf(c) for c in content)
+            return f"```\n{code}\n```"
+
+        # 8. List items
+        if node_type == "listItem":
+            return "\n".join(self._extract_text_from_adf(c).strip() for c in content)
+
+        # 9. Blockquote
+        if node_type == "blockquote":
+            quote_text = "\n".join(self._extract_text_from_adf(c).strip() for c in content)
+            return f"> {quote_text}"
+
+        # Fallback for nested containers
+        sub_texts = [self._extract_text_from_adf(c).strip() for c in content]
+        return " ".join(t for t in sub_texts if t)
+
