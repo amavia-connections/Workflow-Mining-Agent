@@ -77,20 +77,28 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
 
   useEffect(() => {
     if (connector) {
-      const isConn = Boolean(connector.isConnected || connector.last_sync_status === 'SUCCESS' || connector.last_sync_status === 'CONNECTED');
+      const connId = connector.connector_id || connector.id;
+      let savedCreds = null;
+      try {
+        const savedCredsStr = localStorage.getItem('connector_creds_' + connId);
+        if (savedCredsStr) savedCreds = JSON.parse(savedCredsStr);
+      } catch (e) {}
+
+      const isConn = Boolean(connector.isConnected || connector.last_sync_status === 'SUCCESS' || connector.last_sync_status === 'CONNECTED' || savedCreds?.isConnected);
       setStep(isConn ? 4 : 1);
-      setTenantUrl(connector.base_url || '');
-      setUsernameOrEmail(connector.username_or_email || '');
-      setApiKey('');
+      setTenantUrl(savedCreds?.tenantUrl || connector.base_url || '');
+      setUsernameOrEmail(savedCreds?.usernameOrEmail || connector.username_or_email || '');
+      setApiKey(savedCreds?.apiKey || '');
       setTestResult(isConn ? {
         status: 'connected',
         provider: connector.name,
-        authenticated_user: connector.username_or_email,
-        message: `Connected to ${connector.base_url || connector.name}`
+        authenticated_user: savedCreds?.usernameOrEmail || connector.username_or_email,
+        message: `Connected to ${savedCreds?.tenantUrl || connector.base_url || connector.name}`
       } : null);
       setIsTesting(false);
+      const syncedCount = savedCreds?.total_tickets_synced || connector.total_tickets_synced || 0;
       setSyncProgress(isConn ? 100 : 0);
-      setSyncStatusText(isConn ? `Synchronized (${connector.total_tickets_synced || 0} tickets)` : '');
+      setSyncStatusText(isConn ? `Synchronized (${syncedCount} tickets)` : '');
       setSyncSuccess(isConn);
       setIsDemoMode(false); // Live by default
 
@@ -128,6 +136,17 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
       if (res.ok) {
         const data = await res.json();
         setTestResult(data);
+        if (data.status === 'connected' || data.status === 'CONNECTED') {
+          const connId = connector.connector_id || connector.id;
+          try {
+            localStorage.setItem('connector_creds_' + connId, JSON.stringify({
+              tenantUrl,
+              usernameOrEmail,
+              apiKey,
+              isConnected: true
+            }));
+          } catch (e) {}
+        }
       } else {
         setTestResult({
           status: 'error',
@@ -196,6 +215,16 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
           setSyncStatusText('Sync finished: 0 tickets found matching query in your Jira instance. Please check your project issues or date range.');
         } else {
           setSyncStatusText(`Sync complete! Ingested ${count} tickets safely.`);
+          const connId = connector.connector_id || connector.id;
+          try {
+            localStorage.setItem('connector_creds_' + connId, JSON.stringify({
+              tenantUrl,
+              usernameOrEmail,
+              apiKey,
+              isConnected: true,
+              total_tickets_synced: count
+            }));
+          } catch (e) {}
         }
         setIsSyncing(false);
         setSyncSuccess(count > 0);

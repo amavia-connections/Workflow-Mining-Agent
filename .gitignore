@@ -52,4 +52,7 @@ Thumbs.db
 # Project generated artifacts & scratch
 scratch/
 *.pdf
-data/*.db
+
+# Persisted Seed Database & Connector State (Required for Docker & Cloud Run deployments)
+!data/workflow_mining.db
+!data/connectors_state.json

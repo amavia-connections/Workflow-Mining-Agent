@@ -203,6 +203,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
   const handleDisconnectConnector = async (connectorId) => {
     if (!window.confirm("Disconnect this integration? Active credentials and sync session will be reset.")) return;
     try {
+      localStorage.removeItem('connector_creds_' + connectorId);
       const res = await fetch(`/api/connectors/${connectorId}/disconnect`, { method: 'POST' });
       if (res.ok) {
         fetchConnectors();
@@ -233,14 +234,20 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
 
   const handleOpenConnector = (connector) => {
     const live = liveConnectors[connector.id];
-    const isConn = live ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') : false;
+    let saved = null;
+    try {
+      const s = localStorage.getItem('connector_creds_' + connector.id);
+      if (s) saved = JSON.parse(s);
+    } catch (e) {}
+
+    const isConn = (live ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') : false) || Boolean(saved?.isConnected);
     const merged = {
       ...connector,
       ...(live || {}),
       isConnected: isConn,
-      base_url: (live && live.base_url && !live.base_url.includes('demo-corp')) ? live.base_url : connector.base_url,
-      username_or_email: live?.username_or_email || connector.username_or_email || '',
-      total_tickets_synced: live?.total_tickets_synced || 0
+      base_url: saved?.tenantUrl || ((live && live.base_url && !live.base_url.includes('demo-corp')) ? live.base_url : connector.base_url),
+      username_or_email: saved?.usernameOrEmail || live?.username_or_email || connector.username_or_email || '',
+      total_tickets_synced: live?.total_tickets_synced || saved?.total_tickets_synced || 0
     };
     setSelectedConnector(merged);
     setIsModalOpen(true);
@@ -437,13 +444,18 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
             <div className="connector-grid">
               {filteredCatalog.map(connector => {
                 const live = liveConnectors[connector.id];
+                let saved = null;
+                try {
+                  const s = localStorage.getItem('connector_creds_' + connector.id);
+                  if (s) saved = JSON.parse(s);
+                } catch (e) {}
                 const isConnected = live 
                   ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED')
-                  : false;
+                  : Boolean(saved?.isConnected);
                 const isFailed = live ? live.last_sync_status === 'FAILED' : false;
                 const displayStatus = isConnected ? 'Connected' : (isFailed ? 'Error' : 'Disconnected');
                 const badgeClass = isConnected ? 'badge-green' : (isFailed ? 'badge-red' : 'badge-gray');
-                const ticketsCount = live?.total_tickets_synced || 0;
+                const ticketsCount = live?.total_tickets_synced || saved?.total_tickets_synced || 0;
 
                 return (
                   <div 
