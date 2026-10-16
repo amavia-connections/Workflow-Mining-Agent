@@ -92,72 +92,73 @@ class JiraConnector(BaseConnector):
 
     def fetch_raw_tickets(self, max_records: int = 100, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """
-        Executes JQL search query to fetch issues from Jira Cloud or Data Center.
+        Executes JQL search query to fetch issues from Jira Cloud (/search/jql) or Data Center (/search).
         """
-        # If simulated demo mode, return synthetic Jira structures
         if "mock" in self.base_url.lower() or "demo" in self.base_url.lower():
             return self._generate_simulated_jira_issues(max_records)
 
-        # Universal JQL query: do NOT restrict to demo project 'IT'
+        # Normalize URL
+        raw_url = self.base_url.strip().rstrip("/")
+        if "atlassian.net" in raw_url:
+            self.base_url = raw_url.split("atlassian.net")[0] + "atlassian.net"
+        else:
+            self.base_url = raw_url
+
+        # Atlassian /rest/api/3/search/jql requires a bounded query (cannot be unbounded)
         raw_jql = (self.config.query_filter or "").strip()
-        if not raw_jql or "project = 'IT'" in raw_jql or "project='IT'" in raw_jql:
-            jql = "ORDER BY updated DESC"
+        if not raw_jql or "project = 'IT'" in raw_jql or "project='IT'" in raw_jql or raw_jql.startswith("ORDER BY"):
+            jql = "created >= -365d ORDER BY created DESC"
         else:
             jql = raw_jql
 
         if since:
             since_str = since.strftime("%Y-%m-%d %H:%M")
-            if jql.startswith("ORDER BY"):
-                jql = f"updated >= '{since_str}' {jql}"
+            if "created >=" in jql or "updated >=" in jql:
+                jql = f"updated >= '{since_str}' ORDER BY updated DESC"
             else:
                 jql = f"({jql}) AND updated >= '{since_str}'"
 
         all_issues = []
-        start_at = 0
         batch_size = min(max_records, 50)
-        search_url = f"{self.base_url}/rest/api/3/search"
+        fields = [
+            "summary", "description", "issuetype", "priority",
+            "created", "resolutiondate", "resolution", "assignee",
+            "status", "timespent", "comment"
+        ]
+
+        # Use modern Atlassian REST API v3 endpoint: /rest/api/3/search/jql
+        search_jql_url = f"{self.base_url}/rest/api/3/search/jql"
+        next_page_token = None
 
         try:
             with httpx.Client(timeout=30.0) as client:
                 while len(all_issues) < max_records:
                     payload = {
                         "jql": jql,
-                        "startAt": start_at,
                         "maxResults": batch_size,
-                        "fields": [
-                            "summary", "description", "issuetype", "priority",
-                            "created", "resolutiondate", "resolution", "assignee",
-                            "status", "timespent", "comment"
-                        ]
+                        "fields": fields
                     }
-                    resp = client.post(search_url, headers=self.headers, json=payload)
-                    
-                    # 1. Fallback if API v3 is not available (Data Center / Server)
-                    if resp.status_code == 404:
-                        search_url = f"{self.base_url}/rest/api/2/search"
-                        resp = client.post(search_url, headers=self.headers, json=payload)
+                    if next_page_token:
+                        payload["nextPageToken"] = next_page_token
 
-                    # 2. Fallback if JQL was rejected (HTTP 400 Bad Request)
-                    if resp.status_code == 400 and jql != "ORDER BY updated DESC":
-                        jql = "ORDER BY updated DESC"
+                    resp = client.post(search_jql_url, headers=self.headers, json=payload)
+
+                    # 1. Fallback to general bounded query if query was rejected (HTTP 400)
+                    if resp.status_code == 400 and jql != "created >= -365d ORDER BY created DESC":
+                        jql = "created >= -365d ORDER BY created DESC"
                         payload["jql"] = jql
-                        resp = client.post(search_url, headers=self.headers, json=payload)
+                        resp = client.post(search_jql_url, headers=self.headers, json=payload)
 
-                    # 3. Fallback to empty JQL if still rejected
-                    if resp.status_code == 400:
-                        payload.pop("jql", None)
-                        resp = client.post(search_url, headers=self.headers, json=payload)
-
-                    # 4. Fallback to GET method if POST is disallowed or returned an error
-                    if resp.status_code != 200:
-                        get_params = {
-                            "startAt": start_at,
+                    # 2. Fallback to v2 endpoint for Jira Server / Data Center
+                    if resp.status_code in (404, 410):
+                        v2_url = f"{self.base_url}/rest/api/2/search"
+                        v2_payload = {
+                            "jql": jql,
+                            "startAt": len(all_issues),
                             "maxResults": batch_size,
-                            "fields": "summary,description,issuetype,priority,created,resolutiondate,resolution,assignee,status,timespent,comment"
+                            "fields": fields
                         }
-                        if jql:
-                            get_params["jql"] = jql
-                        resp = client.get(search_url, headers=self.headers, params=get_params)
+                        resp = client.post(v2_url, headers=self.headers, json=v2_payload)
 
                     if resp.status_code != 200:
                         raise ConnectorConnectionError(f"Jira search failed with status {resp.status_code}: {resp.text[:250]}")
@@ -168,10 +169,9 @@ class JiraConnector(BaseConnector):
                         break
 
                     all_issues.extend(issues)
-                    start_at += len(issues)
-
-                    total_in_jira = res_json.get("total", len(issues))
-                    if start_at >= total_in_jira:
+                    next_page_token = res_json.get("nextPageToken")
+                    is_last = res_json.get("isLast", False)
+                    if is_last or not next_page_token or len(all_issues) >= max_records:
                         break
 
             return all_issues[:max_records]
