@@ -33,6 +33,9 @@ class JiraConnector(BaseConnector):
         """Sets up HTTP Authorization header based on configuration."""
         if self.config.auth_type == AuthType.OAUTH2 and self.config.api_token_or_secret:
             self.headers["Authorization"] = f"Bearer {self.config.api_token_or_secret}"
+        elif self.config.api_token_or_secret and ":" in self.config.api_token_or_secret:
+            b64_creds = base64.b64encode(self.config.api_token_or_secret.encode()).decode()
+            self.headers["Authorization"] = f"Basic {b64_creds}"
         elif self.config.username_or_email and self.config.api_token_or_secret:
             creds = f"{self.config.username_or_email}:{self.config.api_token_or_secret}"
             b64_creds = base64.b64encode(creds.encode()).decode()

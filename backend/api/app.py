@@ -646,6 +646,7 @@ class DLPPreviewRequest(BaseModel):
 class ConnectorSyncRequest(BaseModel):
     max_records: int = Field(default=100, ge=1, le=1000)
     tenant_url: Optional[str] = None
+    username_or_email: Optional[str] = None
     api_key: Optional[str] = None
     range_days: Optional[int] = 90
     dlp_masking: Optional[bool] = True
@@ -667,6 +668,7 @@ def upsert_connector(config: ConnectorConfig):
 class ConnectorTestPayload(BaseModel):
     is_simulated: Optional[bool] = False
     tenant_url: Optional[str] = None
+    username_or_email: Optional[str] = None
     api_key: Optional[str] = None
     credentials: Optional[Dict[str, Any]] = None
 
@@ -686,11 +688,13 @@ def test_connector(connector_id: str, req: Optional[ConnectorTestPayload] = None
     """Validates connectivity and authentication against the provider instance."""
     try:
         url = None
+        user = None
         token = None
         if req:
             url = req.tenant_url or (req.credentials.get("tenant_url") if req.credentials else None)
+            user = req.username_or_email or (req.credentials.get("username_or_email") if req.credentials else None)
             token = req.api_key or (req.credentials.get("api_key") if req.credentials else None)
-        return connector_manager.test_connection(connector_id, override_url=url, override_token=token)
+        return connector_manager.test_connection(connector_id, override_url=url, override_user=user, override_token=token)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -703,6 +707,7 @@ def sync_connector(connector_id: str, req: ConnectorSyncRequest = ConnectorSyncR
             connector_id, 
             max_records=req.max_records,
             override_url=req.tenant_url,
+            override_user=req.username_or_email,
             override_token=req.api_key
         )
         return summary

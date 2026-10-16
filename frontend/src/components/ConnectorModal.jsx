@@ -36,6 +36,7 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
   
   // Step 1: Credentials
   const [tenantUrl, setTenantUrl] = useState(connector?.base_url || '');
+  const [usernameOrEmail, setUsernameOrEmail] = useState(connector?.username_or_email || '');
   const [apiKey, setApiKey] = useState('');
   const [authType, setAuthType] = useState('token'); // 'token', 'oauth', 'webhook'
   
@@ -76,6 +77,7 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
     if (connector) {
       setStep(1);
       setTenantUrl(connector.base_url || '');
+      setUsernameOrEmail(connector.username_or_email || '');
       setApiKey('');
       setTestResult(null);
       setIsTesting(false);
@@ -111,6 +113,7 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
         body: JSON.stringify({
           is_simulated: isDemoMode,
           tenant_url: tenantUrl,
+          username_or_email: usernameOrEmail,
           api_key: apiKey
         })
       });
@@ -161,6 +164,7 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
           dlp_masking: dlpEnabled,
           is_simulated: isDemoMode,
           tenant_url: tenantUrl,
+          username_or_email: usernameOrEmail,
           api_key: apiKey
         })
       });
@@ -341,6 +345,19 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
                     placeholder={connector ? `e.g. ${connector.base_url}` : 'https://api.provider.com'}
                     value={tenantUrl}
                     onChange={(e) => setTenantUrl(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>
+                    Account Email / Username {connector?.type === 'jira' && <span style={{ color: '#2563eb' }}>(Atlassian account email)</span>}
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. name@company.com"
+                    value={usernameOrEmail}
+                    onChange={(e) => setUsernameOrEmail(e.target.value)}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px', fontSize: '0.85rem' }}
                   />
                 </div>
