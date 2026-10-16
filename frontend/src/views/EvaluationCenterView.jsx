@@ -16,7 +16,7 @@ export default function EvaluationCenterView({ runId }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/evaluation/${runId || 'RUN-DEMO-001'}`)
+    fetch(`/api/evaluation/${runId || 'active'}`)
       .then(res => res.json())
       .then(data => setReport(data))
       .catch(err => console.error('Failed to load evaluation report:', err))
@@ -27,8 +27,20 @@ export default function EvaluationCenterView({ runId }) {
     return <div className="card">Loading evaluation harness metrics...</div>;
   }
 
-  if (!report) {
-    return <div className="card">No evaluation report available for active run.</div>;
+  if (!report || report.detail) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <div style={{ display: 'inline-flex', padding: '16px', background: '#f1f5f9', borderRadius: '50%', marginBottom: '16px' }}>
+          <Target size={36} color="#6366f1" />
+        </div>
+        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '8px' }}>
+          No Evaluation Report Available Yet
+        </h3>
+        <p style={{ color: '#64748b', maxWidth: '520px', margin: '0 auto 20px', fontSize: '0.92rem' }}>
+          Connect an enterprise ticketing source (Jira or ServiceNow) in Data &amp; Config or trigger the Mining Agent to evaluate workflow clusters.
+        </p>
+      </div>
+    );
   }
 
   const d = report.detection_metrics;
@@ -137,21 +149,29 @@ export default function EvaluationCenterView({ runId }) {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(d.detected_vs_planted_mapping || {}).map(([predId, gtKey]) => (
-                  <tr key={predId}>
-                    <td>
-                      <code style={{ fontWeight: 600 }}>{predId}</code>
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 500 }}>{gtKey}</span>
-                    </td>
-                    <td>
-                      <span className="badge badge-green">
-                        <CheckCircle2 size={12} /> Detected
-                      </span>
+                {Object.keys(d.detected_vs_planted_mapping || {}).length > 0 ? (
+                  Object.entries(d.detected_vs_planted_mapping).map(([predId, gtKey]) => (
+                    <tr key={predId}>
+                      <td>
+                        <code style={{ fontWeight: 600 }}>{predId}</code>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 500 }}>{gtKey}</span>
+                      </td>
+                      <td>
+                        <span className="badge badge-green">
+                          <CheckCircle2 size={12} /> Detected
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="3" style={{ textAlign: 'center', color: '#64748b', padding: '16px' }}>
+                      Live production mode active. Connect Jira / ServiceNow or run Mining Agent to view alignment.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -171,16 +191,24 @@ export default function EvaluationCenterView({ runId }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(t.error_by_workflow || {}).map(([wfKey, meta]) => (
-                    <tr key={wfKey}>
-                      <td style={{ fontSize: '0.8rem' }}>{wfKey}</td>
-                      <td>{meta.ground_truth_hours} hrs</td>
-                      <td>{meta.predicted_hours} hrs</td>
-                      <td>
-                        <span className="badge badge-gray">{meta.absolute_error_hours} hrs</span>
+                  {Object.keys(t.error_by_workflow || {}).length > 0 ? (
+                    Object.entries(t.error_by_workflow).map(([wfKey, meta]) => (
+                      <tr key={wfKey}>
+                        <td style={{ fontSize: '0.8rem' }}>{wfKey}</td>
+                        <td>{meta.ground_truth_hours} hrs</td>
+                        <td>{meta.predicted_hours} hrs</td>
+                        <td>
+                          <span className="badge badge-gray">{meta.absolute_error_hours} hrs</span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', color: '#64748b', padding: '16px' }}>
+                        No time breakdown computed. Ingest tickets or run the mining agent.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>

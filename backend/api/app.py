@@ -468,8 +468,10 @@ def get_ticket(ticket_id: str):
 def start_analysis_run(req: AnalysisRunRequest, background_tasks: BackgroundTasks):
     """Starts asynchronous workflow mining run."""
     global active_run_id
+    active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
     run_id = f"RUN-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
     active_run_id = run_id
+    tenant_runs[active_tenant_id] = run_id
     
     analysis_jobs[run_id] = {
         "run_id": run_id,
@@ -485,7 +487,8 @@ def start_analysis_run(req: AnalysisRunRequest, background_tasks: BackgroundTask
         run_id,
         req.hourly_labor_rate or 65.0,
         req.automatable_percentage or 0.75,
-        req.n_clusters or 6
+        req.n_clusters or 6,
+        active_tenant_id
     )
     
     return {"run_id": run_id, "status": "QUEUED"}
@@ -505,6 +508,13 @@ def get_workflows(run_id: Optional[str] = None):
     active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
     ensure_tenant_pipeline(active_tenant_id)
     target_run = run_id or tenant_runs.get(active_tenant_id) or active_run_id
+    if not target_run or target_run not in discovered_workflows_cache or not discovered_workflows_cache[target_run]:
+        tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=active_tenant_id)
+        if tickets:
+            try:
+                _execute_analysis_pipeline(target_run or f"RUN-{active_tenant_id.replace('tenant_', '').upper()}-001", 65.0, 0.75, 6, tenant_id=active_tenant_id)
+            except Exception as ex:
+                print(f"[Warning] Auto-pipeline error in get_workflows: {ex}")
     if not target_run or target_run not in discovered_workflows_cache:
         # Return fallback or empty
         return []
@@ -577,6 +587,27 @@ def get_automation_spec(draft_id: str):
         return tenant_specs[active_tenant_id]
     if automation_specs_cache:
         return list(automation_specs_cache.values())[0]
+
+    # Auto-synthesize draft on-the-fly if workflows exist or tickets were ingested
+    target_run = tenant_runs.get(active_tenant_id, active_run_id)
+    workflows = discovered_workflows_cache.get(target_run, [])
+    if not workflows:
+        tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=active_tenant_id)
+        if tickets:
+            try:
+                _execute_analysis_pipeline(target_run, 65.0, 0.75, 6, tenant_id=active_tenant_id)
+                workflows = discovered_workflows_cache.get(target_run, [])
+            except Exception as ex:
+                print(f"[Warning] On-demand pipeline error in get_automation_spec: {ex}")
+
+    if workflows:
+        top_wf = workflows[0]
+        rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=top_wf.workflow_id, tenant_id=active_tenant_id)
+        spec = agent.draft_specification(top_wf, rep_tickets, target_run or "LIVE-RUN")
+        automation_specs_cache[spec.draft_id] = spec
+        tenant_specs[active_tenant_id] = spec
+        return spec
+
     raise HTTPException(status_code=404, detail="Automation draft not found")
 
 
@@ -620,11 +651,20 @@ def get_evaluation_report(run_id: str):
     active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
     ensure_tenant_pipeline(active_tenant_id)
     target_run = run_id
-    if target_run in ["latest", "active", "default", "undefined"] or not target_run:
+    if target_run in ["latest", "active", "default", "undefined"] or not target_run or (target_run == "RUN-DEMO-001" and active_tenant_id != "tenant_demo_sandbox"):
         target_run = tenant_runs.get(active_tenant_id, active_run_id)
 
     if target_run not in evaluation_reports_cache:
         workflows = discovered_workflows_cache.get(target_run, [])
+        if not workflows:
+            tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=active_tenant_id)
+            if tickets:
+                try:
+                    _execute_analysis_pipeline(target_run, 65.0, 0.75, 6, tenant_id=active_tenant_id)
+                    workflows = discovered_workflows_cache.get(target_run, [])
+                except Exception as ex:
+                    print(f"[Warning] On-demand pipeline error for evaluation: {ex}")
+
         if workflows:
             tickets, _ = repo.get_tickets(limit=10000, tenant_id=active_tenant_id)
             spec = tenant_specs.get(active_tenant_id) or (list(automation_specs_cache.values())[0] if automation_specs_cache else None)
@@ -739,10 +779,20 @@ def sync_connector(connector_id: str, req: ConnectorSyncRequest = ConnectorSyncR
         run_id = f"RUN-{active_tenant.replace('tenant_', '').upper()}-001"
         discovered_workflows_cache.pop(run_id, None)
         tenant_runs.pop(active_tenant, None)
-        try:
-            ensure_tenant_pipeline(active_tenant)
-        except Exception as pipe_err:
-            print(f"[Warning] Pipeline analysis execution warning: {pipe_err}")
+        analysis_jobs.pop(run_id, None)
+        tenant_specs.pop(active_tenant, None)
+        evaluation_reports_cache.pop(run_id, None)
+
+        if summary.tickets_ingested > 0:
+            try:
+                _execute_analysis_pipeline(run_id, 65.0, 0.75, 6, tenant_id=active_tenant)
+            except Exception as pipe_err:
+                print(f"[Warning] Pipeline analysis execution warning: {pipe_err}")
+        else:
+            try:
+                ensure_tenant_pipeline(active_tenant)
+            except Exception as pipe_err:
+                print(f"[Warning] Pipeline analysis execution warning: {pipe_err}")
 
         return summary
     except Exception as e:

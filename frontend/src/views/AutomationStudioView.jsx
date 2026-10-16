@@ -37,21 +37,24 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
   const fetchDraft = async () => {
     setLoading(true);
     try {
-      let url = '/api/automations/SPEC-WF-01';
       if (workflowId) {
-        url = `/api/automations/draft?workflow_id=${encodeURIComponent(workflowId)}`;
-        const draftRes = await fetch(url, { method: 'POST' });
-        const data = await draftRes.json();
-        setSpec(data);
-        return;
+        const draftRes = await fetch(`/api/automations/draft?workflow_id=${encodeURIComponent(workflowId)}`, { method: 'POST' });
+        if (draftRes.ok) {
+          const data = await draftRes.json();
+          setSpec(data);
+          return;
+        }
       }
       const res = await fetch('/api/automations/any');
       if (res.ok) {
         const data = await res.json();
         setSpec(data);
+      } else {
+        setSpec(null);
       }
     } catch (err) {
       console.error('Failed to load specification draft:', err);
+      setSpec(null);
     } finally {
       setLoading(false);
     }
@@ -104,7 +107,24 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
   }
 
   if (!spec) {
-    return <div className="card">No automation draft available. Please select a workflow first.</div>;
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <div style={{ display: 'inline-flex', padding: '16px', background: '#f1f5f9', borderRadius: '50%', marginBottom: '16px' }}>
+          <Sparkles size={36} color="#6366f1" />
+        </div>
+        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '8px' }}>
+          No Automation Draft Available
+        </h3>
+        <p style={{ color: '#64748b', maxWidth: '520px', margin: '0 auto 20px', fontSize: '0.92rem' }}>
+          Connect an enterprise ticketing source (Jira or ServiceNow) in Data &amp; Config, or select a discovered workflow from Workflow Opportunities to draft a grounded specification.
+        </p>
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+          <button className="btn btn-primary" onClick={fetchDraft}>
+            <RotateCcw size={16} /> Check for Drafts
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
