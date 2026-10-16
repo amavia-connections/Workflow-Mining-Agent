@@ -37,14 +37,31 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
   const fetchDraft = async () => {
     setLoading(true);
     try {
-      if (workflowId) {
-        const draftRes = await fetch(`/api/automations/draft?workflow_id=${encodeURIComponent(workflowId)}`, { method: 'POST' });
+      let wfId = workflowId;
+      if (!wfId) {
+        // Auto-detect top discovered workflow if not explicitly provided
+        try {
+          const wfRes = await fetch('/api/workflows');
+          if (wfRes.ok) {
+            const wfs = await wfRes.json();
+            if (wfs && wfs.length > 0) {
+              wfId = wfs[0].workflow_id;
+            }
+          }
+        } catch (e) {
+          console.warn('Could not auto-fetch top workflow:', e);
+        }
+      }
+
+      if (wfId) {
+        const draftRes = await fetch(`/api/automations/draft?workflow_id=${encodeURIComponent(wfId)}`, { method: 'POST' });
         if (draftRes.ok) {
           const data = await draftRes.json();
           setSpec(data);
           return;
         }
       }
+
       const res = await fetch('/api/automations/any');
       if (res.ok) {
         const data = await res.json();
@@ -135,11 +152,11 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
           background: '#fef2f2', 
           border: '2px solid #ef4444', 
           borderRadius: '10px', 
-          padding: '16px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '14px',
-          boxShadow: '0 2px 4px rgba(239, 68, 68, 0.1)'
+          padding: '16px 20px', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '14px', 
+          boxShadow: '0 2px 4px rgba(239, 68, 68, 0.1)' 
         }}
       >
         <AlertOctagon size={28} color="#dc2626" style={{ flexShrink: 0 }} />
@@ -156,9 +173,9 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
 
       {/* Header and Export Controls */}
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <div className="responsive-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
+          <div style={{ minWidth: '260px', flex: '1 1 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
               <span className="badge badge-purple">Google ADK Multi-Step Agent</span>
               <code style={{ fontSize: '0.85rem' }}>{spec.draft_id}</code>
               <span className={`badge ${
@@ -175,7 +192,7 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-primary btn-sm" onClick={() => setIsExportModalOpen(true)}>
               <Share2 size={14} /> Multi-Target Exporter
             </button>
@@ -202,7 +219,7 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
       />
 
       {/* Two Column Layout: Specification Details and Human Review Gate */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '22px' }}>
+      <div className="responsive-split-studio" style={{ display: 'grid', gap: '22px' }}>
         {/* Left Column: Ordered Steps, Decision Rules, Rollback */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
           {/* Ordered Automation Steps */}

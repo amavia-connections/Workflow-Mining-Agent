@@ -87,7 +87,7 @@ export default function EvaluationCenterView({ runId }) {
           All metrics below are <strong>computed from actual pipeline execution</strong>, not hardcoded targets.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginTop: '12px' }}>
+        <div className="responsive-grid-4" style={{ marginTop: '12px' }}>
           <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
             <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Workflow Coverage</span>
             <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#0f172a' }}>
@@ -131,7 +131,7 @@ export default function EvaluationCenterView({ runId }) {
       </div>
 
       {/* Two Column Layout: Detailed Breakdowns */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '24px' }}>
+      <div className="responsive-split-eval" style={{ display: 'grid', gap: '24px' }}>
         {/* Left: Planted vs Discovered Alignment Matrix */}
         <div className="card">
           <h3 className="card-title">

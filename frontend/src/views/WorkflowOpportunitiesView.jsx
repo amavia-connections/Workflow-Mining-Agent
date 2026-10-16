@@ -81,7 +81,7 @@ export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigat
       </div>
 
       {/* Two Column Layout: Ranked Table and Drilldown Inspector */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.3fr', gap: '24px' }}>
+      <div className="responsive-split" style={{ display: 'grid', gap: '24px' }}>
         {/* Ranked Workflow Opportunities List */}
         <div className="card" style={{ padding: 0 }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
@@ -284,7 +284,7 @@ export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigat
                   note="Guarantees ranking transparency with zero arbitrary black-box scoring."
                 />
               </span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '10px', fontSize: '0.8rem' }}>
+              <div className="responsive-grid-4" style={{ gap: '10px', marginTop: '10px', fontSize: '0.8rem' }}>
                 <div style={{ background: '#ffffff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
                   <div style={{ color: '#64748b' }}>Savings (40%)</div>
                   <strong style={{ color: '#059669' }}>+{w.metrics.ranking_factors?.savings_contribution_40pct || 36.0} pts</strong>

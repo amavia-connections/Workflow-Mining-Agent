@@ -372,7 +372,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {/* Live Operational Metrics Bar */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div className="responsive-grid-4" style={{ gap: '12px' }}>
               <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Active Integrations</div>
                 <div style={{ fontSize: '1.35rem', fontWeight: 700, color: connectedCount > 0 ? '#059669' : '#0f172a', marginTop: '2px' }}>

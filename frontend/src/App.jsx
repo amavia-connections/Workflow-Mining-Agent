@@ -19,7 +19,7 @@ import AutomationStudioView from './views/AutomationStudioView';
 import EvaluationCenterView from './views/EvaluationCenterView';
 import ConfigView from './views/ConfigView';
 import DocDrawer from './components/DocDrawer';
-import { BookOpen, UserCheck, Building2, X as CloseIcon } from 'lucide-react';
+import { BookOpen, UserCheck, Building2, X as CloseIcon, Menu } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -27,6 +27,7 @@ export default function App() {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(null);
   const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
   const [analysisStatusText, setAnalysisStatusText] = useState('');
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   
   // Enterprise RBAC Persona state
   const [currentRole, setCurrentRole] = useState('Governance Approver');
@@ -140,23 +141,40 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {/* Mobile Sidebar Backdrop Overlay */}
+      <div 
+        className={`sidebar-backdrop ${isMobileNavOpen ? 'active' : ''}`} 
+        onClick={() => setIsMobileNavOpen(false)} 
+      />
+
       {/* Sidebar Navigation */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${isMobileNavOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-header">
-          <div className="brand-title">
-            <Workflow size={22} color="#2563eb" />
-            <span>Workflow Mining</span>
-          </div>
-          <div style={{ marginTop: '6px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <span className="brand-badge">AI Builder Cup 2026</span>
-            <span className="badge badge-gray" style={{ fontSize: '0.65rem' }}>v1.0</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div className="brand-title">
+                <Workflow size={22} color="#2563eb" />
+                <span>Workflow Mining</span>
+              </div>
+              <div style={{ marginTop: '6px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <span className="brand-badge">AI Builder Cup 2026</span>
+                <span className="badge badge-gray" style={{ fontSize: '0.65rem' }}>v1.0</span>
+              </div>
+            </div>
+            <button 
+              className="mobile-menu-btn" 
+              onClick={() => setIsMobileNavOpen(false)}
+              aria-label="Close sidebar"
+            >
+              <CloseIcon size={18} />
+            </button>
           </div>
         </div>
 
         <nav className="sidebar-nav">
           <button 
             className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overview')}
+            onClick={() => { setActiveTab('overview'); setIsMobileNavOpen(false); }}
           >
             <LayoutDashboard size={18} />
             <span>Overview</span>
@@ -164,7 +182,7 @@ export default function App() {
 
           <button 
             className={`nav-item ${activeTab === 'tickets' ? 'active' : ''}`}
-            onClick={() => setActiveTab('tickets')}
+            onClick={() => { setActiveTab('tickets'); setIsMobileNavOpen(false); }}
           >
             <Search size={18} />
             <span>Ticket Explorer</span>
@@ -172,7 +190,7 @@ export default function App() {
 
           <button 
             className={`nav-item ${activeTab === 'workflows' ? 'active' : ''}`}
-            onClick={() => { setSelectedWorkflowId(null); setActiveTab('workflows'); }}
+            onClick={() => { setSelectedWorkflowId(null); setActiveTab('workflows'); setIsMobileNavOpen(false); }}
           >
             <Workflow size={18} />
             <span>Workflow Opportunities</span>
@@ -180,7 +198,7 @@ export default function App() {
 
           <button 
             className={`nav-item ${activeTab === 'studio' ? 'active' : ''}`}
-            onClick={() => { setSelectedWorkflowId(null); setActiveTab('studio'); }}
+            onClick={() => { setSelectedWorkflowId(null); setActiveTab('studio'); setIsMobileNavOpen(false); }}
           >
             <Cpu size={18} />
             <span>Automation Studio</span>
@@ -188,7 +206,7 @@ export default function App() {
 
           <button 
             className={`nav-item ${activeTab === 'evaluation' ? 'active' : ''}`}
-            onClick={() => setActiveTab('evaluation')}
+            onClick={() => { setActiveTab('evaluation'); setIsMobileNavOpen(false); }}
           >
             <CheckCircle size={18} />
             <span>Evaluation Center</span>
@@ -196,7 +214,7 @@ export default function App() {
 
           <button 
             className={`nav-item ${activeTab === 'config' ? 'active' : ''}`}
-            onClick={() => setActiveTab('config')}
+            onClick={() => { setActiveTab('config'); setIsMobileNavOpen(false); }}
           >
             <Settings size={18} />
             <span>Data &amp; Config</span>
@@ -218,8 +236,15 @@ export default function App() {
       {/* Main Content Area */}
       <main className="main-content">
         {/* Top Header Bar */}
-        <header className="top-bar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        <header className="header top-bar">
+          <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <button 
+              className="mobile-menu-btn" 
+              onClick={() => setIsMobileNavOpen(true)}
+              aria-label="Open navigation menu"
+            >
+              <Menu size={22} />
+            </button>
             <h1 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-0.02em', textTransform: 'capitalize' }}>
               {activeTab === 'overview' && 'Executive Overview'}
               {activeTab === 'tickets' && 'Service Ticket Explorer'}
@@ -235,7 +260,7 @@ export default function App() {
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {/* Enterprise Tenant Context Switcher */}
             <div className="persona-switcher" title="Active Enterprise Tenant context isolates ticket logs, cluster metrics, and workflow models">
               <Building2 size={14} color="#059669" />

@@ -508,17 +508,21 @@ def get_workflows(run_id: Optional[str] = None):
     active_tenant_id = tenant_manager.get_active_tenant()["tenant_id"]
     ensure_tenant_pipeline(active_tenant_id)
     target_run = run_id or tenant_runs.get(active_tenant_id) or active_run_id
-    if not target_run or target_run not in discovered_workflows_cache or not discovered_workflows_cache[target_run]:
-        tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=active_tenant_id)
-        if tickets:
-            try:
-                _execute_analysis_pipeline(target_run or f"RUN-{active_tenant_id.replace('tenant_', '').upper()}-001", 65.0, 0.75, 6, tenant_id=active_tenant_id)
-            except Exception as ex:
-                print(f"[Warning] Auto-pipeline error in get_workflows: {ex}")
-    if not target_run or target_run not in discovered_workflows_cache:
-        # Return fallback or empty
-        return []
-    return discovered_workflows_cache[target_run]
+    if target_run and target_run in discovered_workflows_cache and discovered_workflows_cache[target_run]:
+        return discovered_workflows_cache[target_run]
+    if active_run_id and active_run_id in discovered_workflows_cache and discovered_workflows_cache[active_run_id]:
+        return discovered_workflows_cache[active_run_id]
+    for wfs in discovered_workflows_cache.values():
+        if wfs:
+            return wfs
+    tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=active_tenant_id)
+    if tickets:
+        try:
+            _execute_analysis_pipeline(target_run or f"RUN-{active_tenant_id.replace('tenant_', '').upper()}-001", 65.0, 0.75, 6, tenant_id=active_tenant_id)
+            return discovered_workflows_cache.get(target_run or active_run_id, [])
+        except Exception as ex:
+            print(f"[Warning] Auto-pipeline error in get_workflows: {ex}")
+    return []
 
 
 @app.get("/api/workflows/{workflow_id}")
@@ -590,20 +594,36 @@ def get_automation_spec(draft_id: str):
 
     # Auto-synthesize draft on-the-fly if workflows exist or tickets were ingested
     target_run = tenant_runs.get(active_tenant_id, active_run_id)
-    workflows = discovered_workflows_cache.get(target_run, [])
+    workflows = []
+    if target_run and target_run in discovered_workflows_cache and discovered_workflows_cache[target_run]:
+        workflows = discovered_workflows_cache[target_run]
+    elif active_run_id and active_run_id in discovered_workflows_cache and discovered_workflows_cache[active_run_id]:
+        workflows = discovered_workflows_cache[active_run_id]
+    else:
+        for run_key, run_wfs in discovered_workflows_cache.items():
+            if run_wfs:
+                workflows = run_wfs
+                break
+
     if not workflows:
         tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=active_tenant_id)
         if tickets:
             try:
-                _execute_analysis_pipeline(target_run, 65.0, 0.75, 6, tenant_id=active_tenant_id)
-                workflows = discovered_workflows_cache.get(target_run, [])
+                _execute_analysis_pipeline(target_run or active_run_id or f"RUN-{active_tenant_id.replace('tenant_', '').upper()}-001", 65.0, 0.75, 6, tenant_id=active_tenant_id)
+                workflows = discovered_workflows_cache.get(target_run or active_run_id, [])
             except Exception as ex:
                 print(f"[Warning] On-demand pipeline error in get_automation_spec: {ex}")
 
     if workflows:
         top_wf = workflows[0]
+        # Check if requested draft_id corresponds to a specific workflow
+        for w in workflows:
+            if w.workflow_id == draft_id or f"SPEC-{w.workflow_id}" == draft_id:
+                top_wf = w
+                break
+
         rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=top_wf.workflow_id, tenant_id=active_tenant_id)
-        spec = agent.draft_specification(top_wf, rep_tickets, target_run or "LIVE-RUN")
+        spec = agent.draft_specification(top_wf, rep_tickets, target_run or active_run_id or "LIVE-RUN")
         automation_specs_cache[spec.draft_id] = spec
         tenant_specs[active_tenant_id] = spec
         return spec

@@ -48,7 +48,7 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
       </div>
 
       {/* Primary KPI Stats Grid */}
-      <div className="stat-grid">
+      <div className="stat-grid responsive-grid-4">
         <div className="stat-card">
           <div className="stat-header">
             <span className="stat-label">
@@ -128,7 +128,7 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
       </div>
 
       {/* Two Column Layout: Top Opportunities & Distribution */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '24px' }}>
+      <div className="responsive-split-eval" style={{ display: 'grid', gap: '24px' }}>
         {/* Top Automation Opportunities */}
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>

@@ -189,7 +189,7 @@ export default function TicketExplorerView({ onNavigateToWorkflow }) {
           </span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 240px auto', gap: '12px' }}>
+        <div className="ticket-filters-grid">
           <div style={{ position: 'relative' }}>
             <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '11px' }} />
             <input 
