@@ -110,7 +110,8 @@ def test_api_connectors_list_and_test():
     connectors = res.json()
     assert len(connectors) >= 2
 
-    jira_id = connectors[0]["connector_id"]
+    jira_conn = next((c for c in connectors if c.get("connector_type") == "JIRA"), connectors[0])
+    jira_id = jira_conn["connector_id"]
     test_res = client.post(f"/api/connectors/{jira_id}/test")
     assert test_res.status_code == 200
     test_data = test_res.json()
