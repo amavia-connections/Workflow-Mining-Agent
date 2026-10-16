@@ -240,14 +240,14 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
       if (s) saved = JSON.parse(s);
     } catch (e) {}
 
-    const isConn = (live ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') : false) || Boolean(saved?.isConnected);
+    const isConn = live ? ((live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') && Number(live.total_tickets_synced) > 0) : false;
     const merged = {
       ...connector,
       ...(live || {}),
       isConnected: isConn,
-      base_url: saved?.tenantUrl || ((live && live.base_url && !live.base_url.includes('demo-corp')) ? live.base_url : connector.base_url),
-      username_or_email: saved?.usernameOrEmail || live?.username_or_email || connector.username_or_email || '',
-      total_tickets_synced: live?.total_tickets_synced || saved?.total_tickets_synced || 0
+      base_url: (live && live.base_url && !live.base_url.includes('demo-corp')) ? live.base_url : (saved?.tenantUrl || connector.base_url || ''),
+      username_or_email: live?.username_or_email || saved?.usernameOrEmail || connector.username_or_email || '',
+      total_tickets_synced: live?.total_tickets_synced || 0
     };
     setSelectedConnector(merged);
     setIsModalOpen(true);
@@ -450,12 +450,12 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
                   if (s) saved = JSON.parse(s);
                 } catch (e) {}
                 const isConnected = live 
-                  ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED')
-                  : Boolean(saved?.isConnected);
+                  ? ((live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') && Number(live.total_tickets_synced) > 0)
+                  : false;
                 const isFailed = live ? live.last_sync_status === 'FAILED' : false;
                 const displayStatus = isConnected ? 'Connected' : (isFailed ? 'Error' : 'Disconnected');
                 const badgeClass = isConnected ? 'badge-green' : (isFailed ? 'badge-red' : 'badge-gray');
-                const ticketsCount = live?.total_tickets_synced || saved?.total_tickets_synced || 0;
+                const ticketsCount = live?.total_tickets_synced || 0;
 
                 return (
                   <div 

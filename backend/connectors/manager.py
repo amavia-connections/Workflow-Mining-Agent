@@ -85,13 +85,14 @@ class ConnectorManager:
             name="ServiceNow ITSM (Washington DC)",
             category=ConnectorCategory.ITSM,
             connector_type=ConnectorType.SERVICENOW,
-            base_url="https://demo-corp.service-now.com",
+            base_url="",
             auth_type=AuthType.BASIC,
-            username_or_email="admin.service_desk",
-            api_token_or_secret="demo-pwd-masked-xxxx",
+            username_or_email="",
+            api_token_or_secret="",
             query_filter="stateIN6,7^ORDERBYDESCsys_updated_on",
             icon_key="servicenow",
-            last_sync_status=SyncStatus.IDLE
+            last_sync_status=SyncStatus.IDLE,
+            total_tickets_synced=0
         ))
 
         self._add(ConnectorConfig(
@@ -99,16 +100,14 @@ class ConnectorManager:
             name="Jira Service Management Cloud",
             category=ConnectorCategory.ITSM,
             connector_type=ConnectorType.JIRA,
-            base_url="https://amavia.atlassian.net",
+            base_url="",
             auth_type=AuthType.API_TOKEN,
-            username_or_email="rizaulsayyed@gmail.com",
-            api_token_or_secret="ATATT3xFfGF0QbyGTCnHvh5Jl57DrIqLSSDVW9U3zokZLsBmgXWfnubjpAfQlhyVmvQLjfqTegWT-5qPnblerbbC2bL4blDwJRw26CSF6vgtN3mPRwZ86mPVN5_Vq5L8dQr31ClLNx9Ba-bNR2hYAqtSK4WZWiC-StprsEjwDhmCL9SiqBKHlRI=E06BFAE4",
+            username_or_email="",
+            api_token_or_secret="",
             query_filter="ORDER BY updated DESC",
             icon_key="jira",
-            last_sync_status=SyncStatus.SUCCESS,
-            last_sync_message="Synchronized 100 tickets safely.",
-            total_tickets_synced=100,
-            last_synced_at=datetime.utcnow()
+            last_sync_status=SyncStatus.IDLE,
+            total_tickets_synced=0
         ))
 
         self._add(ConnectorConfig(

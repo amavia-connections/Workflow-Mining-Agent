@@ -84,7 +84,7 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
         if (savedCredsStr) savedCreds = JSON.parse(savedCredsStr);
       } catch (e) {}
 
-      const isConn = Boolean(connector.isConnected || connector.last_sync_status === 'SUCCESS' || connector.last_sync_status === 'CONNECTED' || savedCreds?.isConnected);
+      const isConn = Boolean(connector && (connector.last_sync_status === 'SUCCESS' || connector.last_sync_status === 'CONNECTED') && Number(connector.total_tickets_synced) > 0);
       setStep(isConn ? 4 : 1);
       setTenantUrl(savedCreds?.tenantUrl || connector.base_url || '');
       setUsernameOrEmail(savedCreds?.usernameOrEmail || connector.username_or_email || '');

@@ -19,7 +19,7 @@ ENTERPRISE_TENANTS = {
         "tier": "Live Production",
         "sso_provider": "Google Cloud Identity / Okta Enterprise SSO",
         "idp_entity_id": "https://accounts.google.com/o/saml2?idpid=PROD-CORP-01",
-        "active_connectors": ["novadesk-itsm-01", "jira-enterprise-01", "servicenow-enterprise-01"],
+        "active_connectors": [],
         "created_at": "2026-01-01T00:00:00Z"
     },
     "tenant_acme_global": {

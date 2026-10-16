@@ -4,10 +4,10 @@
     "name": "ServiceNow ITSM (Washington DC)",
     "category": "Enterprise ITSM",
     "connector_type": "SERVICENOW",
-    "base_url": "https://demo-corp.service-now.com",
+    "base_url": "",
     "auth_type": "BASIC",
-    "username_or_email": "admin.service_desk",
-    "api_token_or_secret": "demo-pwd-masked-xxxx",
+    "username_or_email": "",
+    "api_token_or_secret": "",
     "query_filter": "stateIN6,7^ORDERBYDESCsys_updated_on",
     "field_mapping": {
       "ticket_id_field": "id",
@@ -36,20 +36,20 @@
     "is_simulated_demo": true,
     "icon_key": "servicenow",
     "created_at": "2026-10-16T21:27:08.712938",
-    "last_synced_at": "2026-10-16T22:00:42.825499",
-    "last_sync_status": "SUCCESS",
-    "last_sync_message": "Synchronized 10 tickets in 0.01s.",
-    "total_tickets_synced": 40
+    "last_synced_at": null,
+    "last_sync_status": "IDLE",
+    "last_sync_message": null,
+    "total_tickets_synced": 0
   },
   "jira-enterprise-01": {
     "connector_id": "jira-enterprise-01",
     "name": "Jira Service Management Cloud",
     "category": "Enterprise ITSM",
     "connector_type": "JIRA",
-    "base_url": "https://amavia.atlassian.net",
+    "base_url": "",
     "auth_type": "API_TOKEN",
-    "username_or_email": "rizaulsayyed@gmail.com",
-    "api_token_or_secret": "ATATT3xFfGF0QbyGTCnHvh5Jl57DrIqLSSDVW9U3zokZLsBmgXWfnubjpAfQlhyVmvQLjfqTegWT-5qPnblerbbC2bL4blDwJRw26CSF6vgtN3mPRwZ86mPVN5_Vq5L8dQr31ClLNx9Ba-bNR2hYAqtSK4WZWiC-StprsEjwDhmCL9SiqBKHlRI=E06BFAE4",
+    "username_or_email": "",
+    "api_token_or_secret": "",
     "query_filter": "ORDER BY updated DESC",
     "field_mapping": {
       "ticket_id_field": "id",
@@ -78,10 +78,10 @@
     "is_simulated_demo": true,
     "icon_key": "jira",
     "created_at": "2026-10-16T21:27:08.712938",
-    "last_synced_at": "2026-10-16T21:28:48.304422",
-    "last_sync_status": "SUCCESS",
-    "last_sync_message": "Synchronized 100 tickets in 1.64s.",
-    "total_tickets_synced": 200
+    "last_synced_at": null,
+    "last_sync_status": "IDLE",
+    "last_sync_message": null,
+    "total_tickets_synced": 0
   },
   "novadesk-itsm-01": {
     "connector_id": "novadesk-itsm-01",
