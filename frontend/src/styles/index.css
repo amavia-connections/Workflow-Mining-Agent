@@ -752,6 +752,53 @@ tr:hover td {
 
 .step-node {
   border-color: #cbd5e1;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.step-node:hover {
+  border-color: #7c3aed !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.18) !important;
+  transform: translateY(-3px) scale(1.02);
+}
+
+.step-node:active {
+  transform: translateY(-1px);
+}
+
+.step-ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #7c3aed;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  padding: 2px 7px;
+  border-radius: 999px;
+  margin-top: 6px;
+  transition: all 0.15s ease;
+  width: fit-content;
+}
+
+.step-node:hover .step-ai-pill {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: #7c3aed;
+}
+
+.clickable-step-row {
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.clickable-step-row:hover {
+  border-color: #93c5fd !important;
+  background: #f8fbff !important;
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08);
 }
 
 .approval-node {

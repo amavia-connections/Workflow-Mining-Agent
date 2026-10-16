@@ -97,3 +97,26 @@ def test_evaluation_endpoint():
     assert "time_metrics" in report
     assert report["detection_metrics"]["coverage_percentage"] > 0
     assert report["leakage_verification"]["leakage_detected"] is False
+
+
+def test_explain_workflow_step_endpoint():
+    payload = {
+        "workflow_name": "Canary Traffic Shifting",
+        "step_number": 1,
+        "step_name": "Drain ingress traffic to test stage",
+        "target_system": "Kubernetes Ingress / Envoy",
+        "action_description": "Gradually shift traffic away from failing pods",
+        "evidence_source_note": "Extracted from deployment runbook"
+    }
+    res = client.post("/api/workflows/explain-step", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["step_number"] == 1
+    assert data["step_name"] == "Drain ingress traffic to test stage"
+    assert "why_needed" in data and len(data["why_needed"]) > 20
+    assert "how_to_improve" in data and len(data["how_to_improve"]) > 20
+    assert "safeguards" in data and len(data["safeguards"]) > 10
+    assert "time_savings" in data
+    assert isinstance(data["automation_tooling"], list)
+    assert len(data["automation_tooling"]) > 0
+

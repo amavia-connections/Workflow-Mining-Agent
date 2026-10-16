@@ -10,8 +10,10 @@ import {
   Layers, 
   ChevronRight,
   GitBranch,
-  Info
+  Info,
+  Sparkles
 } from 'lucide-react';
+import StepExplanationModal from './StepExplanationModal';
 
 /**
  * Interactive BPMN / Process Flow Diagram
@@ -19,15 +21,19 @@ import {
  */
 export default function ProcessDiagram({ 
   workflowName = 'Remediation Workflow',
+  category = 'Target System',
   triggers = ['System alert or incident webhook received'],
   preconditions = ['Target service reachable & credentials valid'],
   steps = [],
   approvalRequired = true,
   approvalRole = 'DevOps / SRE Lead',
   exceptions = ['API rate limit exceeded', 'Precondition assertion failed'],
-  rollbackStrategy = 'Purge temporary cache and revert to previous configuration manifest'
+  rollbackStrategy = 'Purge temporary cache and revert to previous configuration manifest',
+  onStepClick = null
 }) {
   const [activePathView, setActivePathView] = useState('ALL'); // 'ALL', 'HAPPY', 'EXCEPTION'
+  const [selectedStepForModal, setSelectedStepForModal] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Default fallback steps if none passed
   const displaySteps = steps && steps.length > 0 ? steps : [
@@ -118,7 +124,15 @@ export default function ProcessDiagram({
           {/* Nodes 3..N: Sequential Action Steps */}
           {displaySteps.map((s, idx) => (
             <React.Fragment key={s.step_number || idx}>
-              <div className="flow-node step-node">
+              <div 
+                className="flow-node step-node"
+                onClick={() => {
+                  setSelectedStepForModal(s);
+                  setIsModalOpen(true);
+                  if (onStepClick) onStepClick(s);
+                }}
+                title="Click for Gemini Step Rationale & Optimization Analysis"
+              >
                 <div className="node-icon-bubble" style={{ background: s.is_grounded_in_evidence ? '#ecfdf5' : '#f5f3ff', color: s.is_grounded_in_evidence ? '#059669' : '#7c3aed' }}>
                   <Layers size={15} />
                 </div>
@@ -132,6 +146,10 @@ export default function ProcessDiagram({
                 </div>
                 <div className="node-title">{s.step_name}</div>
                 <div className="node-sub"><code>{s.target_system_or_api}</code></div>
+                
+                <div className="step-ai-pill">
+                  <Sparkles size={10} /> Gemini Deep-Dive
+                </div>
               </div>
 
               <div className="flow-connector">
@@ -215,6 +233,15 @@ export default function ProcessDiagram({
           </div>
         )}
       </div>
+
+      {/* Gemini Step Explanation Modal */}
+      <StepExplanationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        step={selectedStepForModal}
+        workflowName={workflowName}
+        category={category}
+      />
     </div>
   );
 }

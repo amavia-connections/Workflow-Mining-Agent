@@ -15,12 +15,15 @@ import {
 } from 'lucide-react';
 import ProcessDiagram from '../components/ProcessDiagram';
 import MetricTooltip from '../components/MetricTooltip';
+import StepExplanationModal from '../components/StepExplanationModal';
 
 export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigateToStudio }) {
   const [workflows, setWorkflows] = useState([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filterComplexity, setFilterComplexity] = useState('ALL');
+  const [modalStep, setModalStep] = useState(null);
+  const [isStepModalOpen, setIsStepModalOpen] = useState(false);
 
   useEffect(() => {
     fetch('/api/workflows')
@@ -218,16 +221,39 @@ export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigat
 
             {/* Extracted Runbook Steps */}
             <div>
-              <h4 style={{ fontSize: '0.92rem', fontWeight: 600, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle size={16} color="#059669" /> Extracted Typical Resolution Steps
-              </h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h4 style={{ fontSize: '0.92rem', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle size={16} color="#059669" /> Extracted Typical Resolution Steps
+                </h4>
+                <span style={{ fontSize: '0.74rem', color: '#64748b' }}>Click any step for Gemini deep-dive</span>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {w.typical_resolution_steps.map((step, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '0.88rem', background: '#ffffff', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                    <span style={{ background: '#eff6ff', color: '#2563eb', fontWeight: 700, borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', flexShrink: 0 }}>
-                      {idx + 1}
+                  <div 
+                    key={idx} 
+                    className="clickable-step-row"
+                    onClick={() => {
+                      setModalStep({
+                        step_number: idx + 1,
+                        step_name: step,
+                        target_system_or_api: w.category || 'Target System',
+                        action_description: step,
+                        is_grounded_in_evidence: true
+                      });
+                      setIsStepModalOpen(true);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.88rem', background: '#ffffff', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}
+                    title="Click for Gemini Step Rationale & Optimization Analysis"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                      <span style={{ background: '#eff6ff', color: '#2563eb', fontWeight: 700, borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', flexShrink: 0 }}>
+                        {idx + 1}
+                      </span>
+                      <span>{step}</span>
+                    </div>
+                    <span className="badge badge-purple" style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+                      <Sparkles size={11} /> Explain
                     </span>
-                    <span>{step}</span>
                   </div>
                 ))}
               </div>
@@ -290,6 +316,15 @@ export default function WorkflowOpportunitiesView({ initialWorkflowId, onNavigat
           </div>
         ) : null}
       </div>
+
+      {/* Gemini Step Explanation Modal for Extracted Steps */}
+      <StepExplanationModal
+        isOpen={isStepModalOpen}
+        onClose={() => setIsStepModalOpen(false)}
+        step={modalStep}
+        workflowName={selectedWorkflow?.workflow_name || 'IT Operations Workflow'}
+        category={selectedWorkflow?.category || 'IT Operations'}
+      />
     </div>
   );
 }

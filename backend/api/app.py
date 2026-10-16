@@ -42,6 +42,11 @@ from backend.services.pdf_service import PDFService
 from backend.services.notification_service import NotificationService
 from backend.services.queue_service import task_queue
 from backend.services.tenant_service import tenant_manager, ENTERPRISE_TENANTS
+from backend.services.step_explainer import (
+    StepExplanationRequest,
+    StepExplanationResponse,
+    explain_workflow_step
+)
 from fastapi.responses import Response
 
 
@@ -523,6 +528,18 @@ def get_workflow_tickets(workflow_id: str):
     ensure_tenant_pipeline(active_tenant_id)
     tickets, total = repo.get_tickets(limit=100, workflow_id=workflow_id, tenant_id=active_tenant_id)
     return {"tickets": tickets, "total": total}
+
+
+@app.post("/api/workflows/explain-step", response_model=StepExplanationResponse)
+def explain_step(req: StepExplanationRequest):
+    """
+    Generates a Gemini 1.5 Flash technical explanation for an individual workflow step,
+    detailing why it is needed, how it can be improved/automated, and safety verification criteria.
+    """
+    try:
+        return explain_workflow_step(req)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/automations/draft")
@@ -1061,6 +1078,19 @@ def get_current_enterprise_session():
     }
 
 
+
+
+@app.post("/api/workflows/explain-step", response_model=StepExplanationResponse)
+def explain_step_endpoint(req: StepExplanationRequest):
+    """
+    Generates operational rationale, automation recommendations, and rollback safeguards
+    for an individual workflow step via Google Gemini 1.5 Flash (with production fallback).
+    """
+    try:
+        explanation = explain_workflow_step(req)
+        return explanation
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate step explanation: {str(e)}")
 
 
 # Serve frontend static assets if built

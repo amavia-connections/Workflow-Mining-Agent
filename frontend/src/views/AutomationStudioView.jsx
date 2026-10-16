@@ -15,10 +15,12 @@ import {
   AlertOctagon,
   Share2,
   AlertTriangle,
-  GitBranch
+  GitBranch,
+  Sparkles
 } from 'lucide-react';
 import ProcessDiagram from '../components/ProcessDiagram';
 import ExportModal from '../components/ExportModal';
+import StepExplanationModal from '../components/StepExplanationModal';
 
 export default function AutomationStudioView({ workflowId, currentRole = 'Governance Approver' }) {
   const [spec, setSpec] = useState(null);
@@ -27,6 +29,8 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewerName, setReviewerName] = useState('Demo Approver (Governance Lead)');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [modalStep, setModalStep] = useState(null);
+  const [isStepModalOpen, setIsStepModalOpen] = useState(false);
 
   const canApprove = currentRole === 'Governance Approver' || currentRole === 'Admin';
 
@@ -192,12 +196,18 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
               {spec.ordered_steps?.map((step) => (
                 <div 
                   key={step.step_number}
+                  className="clickable-step-row"
+                  onClick={() => {
+                    setModalStep(step);
+                    setIsStepModalOpen(true);
+                  }}
                   style={{
                     padding: '14px',
                     borderRadius: '8px',
                     border: '1px solid #e2e8f0',
                     background: '#ffffff'
                   }}
+                  title="Click for Gemini Step Rationale & Optimization Analysis"
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -206,9 +216,14 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
                       </span>
                       <strong style={{ fontSize: '0.9rem' }}>{step.step_name}</strong>
                     </div>
-                    <span className={`badge ${step.is_grounded_in_evidence ? 'badge-green' : 'badge-amber'}`}>
-                      {step.is_grounded_in_evidence ? '✅ Grounded in Evidence' : '💡 Recommendation'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="badge badge-purple" style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <Sparkles size={11} /> Gemini Explain
+                      </span>
+                      <span className={`badge ${step.is_grounded_in_evidence ? 'badge-green' : 'badge-amber'}`}>
+                        {step.is_grounded_in_evidence ? '✅ Grounded' : '💡 Recommendation'}
+                      </span>
+                    </div>
                   </div>
 
                   <p style={{ fontSize: '0.88rem', color: '#334155', marginBottom: '8px' }}>
@@ -378,6 +393,15 @@ export default function AutomationStudioView({ workflowId, currentRole = 'Govern
         onClose={() => setIsExportModalOpen(false)} 
         draftId={spec.draft_id} 
         spec={spec} 
+      />
+
+      {/* Gemini Step Explanation Modal */}
+      <StepExplanationModal 
+        isOpen={isStepModalOpen} 
+        onClose={() => setIsStepModalOpen(false)} 
+        step={modalStep} 
+        workflowName={spec.workflow_name || 'Automated Remediation'} 
+        category={spec.business_objective || 'Production Infrastructure'}
       />
     </div>
   );
