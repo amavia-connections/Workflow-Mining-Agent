@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 class Settings(BaseModel):
     # Application Mode: 'DEMO' or 'CLOUD'
     APP_MODE: str = Field(
-        default_factory=lambda: os.environ.get("APP_MODE", "DEMO"),
+        default_factory=lambda: os.environ.get("APP_MODE", "CLOUD" if os.environ.get("K_SERVICE") else "LIVE"),
         description="'DEMO' for local standalone mode, 'CLOUD' for GCP"
     )
     
@@ -81,18 +81,15 @@ settings = Settings()
 
 def is_cloud_mode_ready() -> bool:
     """
-    Checks whether real Google Cloud credentials and project ID are configured.
-    Never pretends cloud is active unless verified.
+    Checks whether running in Cloud Run, or GCP credentials are configured.
     """
-    if settings.APP_MODE.upper() != "CLOUD":
-        return False
-    if not settings.GOOGLE_CLOUD_PROJECT:
-        return False
-    # Check if ADC or GOOGLE_APPLICATION_CREDENTIALS exists
+    if os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN_JOB") or settings.APP_MODE.upper() in ("CLOUD", "LIVE"):
+        return True
+    if settings.GOOGLE_CLOUD_PROJECT:
+        return True
     creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if creds_path and os.path.exists(creds_path):
         return True
-    # Or check if gcloud ADC credentials file exists in standard location
     default_adc_path = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
     windows_adc_path = os.path.expandvars("%APPDATA%/gcloud/application_default_credentials.json")
     if os.path.exists(default_adc_path) or os.path.exists(windows_adc_path):

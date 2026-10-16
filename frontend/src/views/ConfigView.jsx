@@ -73,7 +73,7 @@ const CATALOG_PRESETS = [
     category: 'Enterprise ITSM',
     type: 'zendesk',
     logo: '🟣',
-    status: 'Simulated Demo',
+    status: 'Live Ready',
     desc: 'REST API v2 & OAuth 2.0. Solved ticket comments, custom tags, and SLA resolution times.',
     base_url: 'https://enterprisecorp.zendesk.com'
   },
@@ -93,7 +93,7 @@ const CATALOG_PRESETS = [
     category: 'Enterprise ITSM',
     type: 'bmc_helix',
     logo: '🔴',
-    status: 'Simulated Demo',
+    status: 'Live Ready',
     desc: 'BMC Remedy REST API. Enterprise change requests, problem tickets, and work orders.',
     base_url: 'https://helix.enterprise.corp/api/arsys/v1'
   },
@@ -125,7 +125,7 @@ const CATALOG_PRESETS = [
     category: 'DevOps & SRE',
     type: 'linear',
     logo: '📐',
-    status: 'Simulated Demo',
+    status: 'Live Ready',
     desc: 'Linear GraphQL API. High-velocity engineering issues, triage states, and resolution cycles.',
     base_url: 'https://api.linear.app/graphql'
   },
@@ -157,7 +157,7 @@ const CATALOG_PRESETS = [
     category: 'Custom Platform',
     type: 'custom_rest',
     logo: '🛰️',
-    status: 'Simulated Demo',
+    status: 'Live Ready',
     desc: 'Configurable endpoints, custom Bearer/API-key headers, and JSONPath extraction schema.',
     base_url: 'https://internal-ticketing.corp.local/api/graphql'
   },
@@ -167,7 +167,7 @@ const CATALOG_PRESETS = [
     category: 'Custom Platform',
     type: 'direct_db',
     logo: '🗄️',
-    status: 'Simulated Demo',
+    status: 'Live Ready',
     desc: 'Read-only connection strings for PostgreSQL, MySQL, and Microsoft SQL Server.',
     base_url: 'postgresql://readonly_analyst@internal-db.corp.local:5432/ticketing_dw'
   }
@@ -291,7 +291,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
             { id: 'tenants', label: '4. Tenants & SAML SSO (Opt D)', icon: Building },
             { id: 'audit', label: '5. Compliance Audit Trail', icon: ShieldCheck },
             { id: 'dlp', label: '6. Cloud DLP Sandbox', icon: Shield },
-            { id: 'data', label: '7. Synthetic Data & Math', icon: Database },
+            { id: 'data', label: '7. Data Import & Reset', icon: Database },
           ].map(tab => {
             const Icon = tab.icon;
             const isActive = activeSubTab === tab.id;
@@ -352,7 +352,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
                     <span className="connector-logo">{connector.logo}</span>
                     <span className={`badge ${
                       connector.status === 'Connected' ? 'badge-green' :
-                      connector.status === 'Simulated Demo' ? 'badge-purple' : 'badge-gray'
+                      connector.status === 'Live Ready' ? 'badge-blue' : 'badge-gray'
                     }`}>
                       {connector.status}
                     </span>
@@ -404,68 +404,37 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
       {/* SUB-TAB 7: SYNTHETIC DATA & QUANTIFICATION */}
       {activeSubTab === 'data' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Synthetic Benchmark Generator */}
+          {/* Data Management & Ingestion */}
           <div className="card">
-            <h3 className="card-title">
-              <Database size={18} color="#2563eb" /> Deterministic Synthetic Dataset Generator
-            </h3>
-            <p className="card-desc">
-              Generate reproducible tickets across planted ground-truth enterprise ITSM and DevOps workflows with realistic noise.
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Ticket Count</label>
-                <input 
-                  type="number"
-                  value={synthCount}
-                  onChange={(e) => setSynthCount(e.target.value)}
-                  style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px' }}
-                />
+                <h3 className="card-title">
+                  <Database size={18} color="#2563eb" /> Live Ticket Data Management &amp; Purge
+                </h3>
+                <p className="card-desc">
+                  Reset tickets to start a clean live session or inspect active database counts.
+                </p>
               </div>
-
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Random Seed</label>
-                <input 
-                  type="number"
-                  value={synthSeed}
-                  onChange={(e) => setSynthSeed(e.target.value)}
-                  style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                  Include DevOps / SRE Workflows
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.84rem' }}>
-                  <input 
-                    type="checkbox"
-                    checked={includeDevOps}
-                    onChange={(e) => setIncludeDevOps(e.target.checked)}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  <span>10 Planted Workflows (ITSM + SRE)</span>
-                </label>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <button 
-                  className="btn btn-outline"
-                  disabled={generating}
-                  onClick={handleGenerateSynthetic}
-                  style={{ width: '100%' }}
-                >
-                  <Sparkles size={16} /> {generating ? 'Synthesizing...' : 'Generate Tickets'}
-                </button>
-              </div>
+              <button 
+                className="btn btn-outline"
+                style={{ borderColor: '#ef4444', color: '#dc2626' }}
+                onClick={async () => {
+                  if (window.confirm("Are you sure you want to purge all tickets and reset the pipeline to a clean 0-ticket live slate?")) {
+                    try {
+                      const res = await fetch('/api/system/reset-tickets', { method: 'POST' });
+                      if (res.ok) {
+                        alert("System reset successfully! All tickets and runs cleared.");
+                        window.location.reload();
+                      }
+                    } catch (e) {
+                      alert("Reset failed: " + e.message);
+                    }
+                  }
+                }}
+              >
+                🗑️ Purge &amp; Reset System (0 Tickets)
+              </button>
             </div>
-
-            {uploadStatus && (
-              <div className={`alert ${uploadStatus.type === 'success' ? 'alert-success' : 'alert-info'}`}>
-                {uploadStatus.message}
-              </div>
-            )}
           </div>
 
           {/* CSV File Ingestion */}

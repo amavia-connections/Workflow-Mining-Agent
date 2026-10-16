@@ -12,6 +12,16 @@ from backend.models.connector import UserPersona
 
 # Enterprise Tenants Directory
 ENTERPRISE_TENANTS = {
+    "tenant_live_production": {
+        "tenant_id": "tenant_live_production",
+        "name": "Enterprise Production Operations",
+        "domain": "production.enterprise.corp",
+        "tier": "Live Production",
+        "sso_provider": "Google Cloud Identity / Okta Enterprise SSO",
+        "idp_entity_id": "https://accounts.google.com/o/saml2?idpid=PROD-CORP-01",
+        "active_connectors": ["novadesk-itsm-01", "jira-enterprise-01", "servicenow-enterprise-01"],
+        "created_at": "2026-01-01T00:00:00Z"
+    },
     "tenant_acme_global": {
         "tenant_id": "tenant_acme_global",
         "name": "Acme Global Manufacturing",
@@ -44,12 +54,12 @@ ENTERPRISE_TENANTS = {
     },
     "tenant_demo_sandbox": {
         "tenant_id": "tenant_demo_sandbox",
-        "name": "Default Demo Enterprise",
-        "domain": "enterprise-demo.internal",
+        "name": "Developer Sandbox",
+        "domain": "sandbox.internal",
         "tier": "Developer Sandbox",
-        "sso_provider": "Local Enterprise Simulator",
+        "sso_provider": "Internal Mock IdP",
         "idp_entity_id": "http://localhost:8000/saml/idp",
-        "active_connectors": ["custom-webhook-01", "servicenow-enterprise-01"],
+        "active_connectors": ["custom-webhook-01"],
         "created_at": "2026-04-01T00:00:00Z"
     }
 }
@@ -58,21 +68,21 @@ ENTERPRISE_TENANTS = {
 class TenantContextManager:
     """Manages active enterprise tenant state, SAML tokens, and RBAC claims."""
     def __init__(self):
-        self.active_tenant_id = "tenant_demo_sandbox"
+        self.active_tenant_id = "tenant_live_production"
         self.active_session: Dict[str, Any] = {
             "session_id": "SESS-ENTERPRISE-DEMO-01",
-            "user_id": "usr_991823746",
-            "email": "sarah.connor@enterprise.corp",
-            "full_name": "Sarah Connor",
+            "user_id": "usr_prod_1001",
+            "email": "operations.lead@enterprise.corp",
+            "full_name": "Operations Lead",
             "role": "Governance Approver",
-            "tenant_id": "tenant_demo_sandbox",
+            "tenant_id": "tenant_live_production",
             "idp_issuer": "Okta Enterprise SSO",
             "saml_groups": ["SRE-Tech-Leads", "Change-Advisory-Board"],
             "authenticated_at": datetime.utcnow().isoformat()
         }
 
     def get_active_tenant(self) -> Dict[str, Any]:
-        return ENTERPRISE_TENANTS.get(self.active_tenant_id, ENTERPRISE_TENANTS["tenant_demo_sandbox"])
+        return ENTERPRISE_TENANTS.get(self.active_tenant_id, ENTERPRISE_TENANTS.get("tenant_live_production", list(ENTERPRISE_TENANTS.values())[0]))
 
     def list_tenants(self) -> List[Dict[str, Any]]:
         return list(ENTERPRISE_TENANTS.values())

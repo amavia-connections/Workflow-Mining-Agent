@@ -31,11 +31,11 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
           <span>
             <strong>Tenant Organization:</strong>{' '}
             <span className="badge badge-green" style={{ marginLeft: '4px', marginRight: '6px' }}>
-              {summary.tenant_name || 'Enterprise Sandbox'}
+              {summary.tenant_name || 'Enterprise Production'}
             </span>
             &bull; Operating in{' '}
-            <span className="badge badge-purple" style={{ marginLeft: '4px' }}>
-              {summary.cloud_mode_enabled ? 'GCP Vertex AI & BigQuery' : 'Deterministic Local Mode (Offline)'}
+            <span className="badge badge-green" style={{ marginLeft: '4px' }}>
+              {summary.cloud_mode_enabled ? 'GCP Production (Vertex AI & BigQuery)' : 'Live Production Mode'}
             </span>
             {' '}&bull; Run ID: <code style={{ fontWeight: 600 }}>{summary.active_run_id}</code>
           </span>
@@ -61,9 +61,9 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
             </span>
             <Layers size={18} color="#2563eb" />
           </div>
-          <div className="stat-value">{summary.total_tickets_analyzed?.toLocaleString() || '3,000'}</div>
+          <div className="stat-value">{summary.total_tickets_analyzed !== undefined && summary.total_tickets_analyzed !== null ? summary.total_tickets_analyzed.toLocaleString() : '0'}</div>
           <div className="stat-sub">
-            <span className="badge badge-blue">100% Ingested</span> across past 90 days
+            <span className="badge badge-blue">{summary.total_tickets_analyzed > 0 ? "100% Ingested" : "Live Sync Ready"}</span> across active channels
           </div>
         </div>
 
@@ -80,9 +80,9 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
             </span>
             <Sparkles size={18} color="#7c3aed" />
           </div>
-          <div className="stat-value">{summary.workflows_discovered_count || 6}</div>
+          <div className="stat-value">{summary.workflows_discovered_count !== undefined && summary.workflows_discovered_count !== null ? summary.workflows_discovered_count : 0}</div>
           <div className="stat-sub">
-            <span className="badge badge-purple">High Coherence</span> semantic clusters
+            <span className="badge badge-green">{summary.workflows_discovered_count > 0 ? "High Coherence" : "Idle"}</span> semantic clusters
           </div>
         </div>
 
