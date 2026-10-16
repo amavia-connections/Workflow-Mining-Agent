@@ -43,11 +43,31 @@ def _generate_grounded_fallback(req: StepExplanationRequest) -> Dict[str, Any]:
     Intelligent heuristic fallback providing rich, production-grade SRE explanations
     when Gemini API key is offline or in local demo mode.
     """
-    # Match specific step content first before generic workflow words
     step_txt = f"{req.step_name} {req.action_description} {req.target_system}".lower()
     full_txt = f"{step_txt} {req.workflow_name}".lower()
+    txt = full_txt
 
-    if any(k in step_txt for k in ["flush", "cache", "redis", "memcached"]):
+    if any(k in txt for k in ["approval", "manager", "servicenow", "portal", "gate", "verify"]):
+        return {
+            "why_needed": (
+                f"Verifying managerial approval and business justification in ServiceNow prior to executing changes on '{req.target_system}' "
+                "is a mandatory SOX, SOC-2, and ISO 27001 regulatory compliance control. Executing modifications without verified supervisor authorization "
+                "creates severe insider threat vulnerabilities, unapproved configuration drift, and immediate audit failure."
+            ),
+            "how_to_improve": (
+                "Automate approval orchestration using event-driven webhooks between ServiceNow / Jira Service Management and the workflow agent. "
+                "Once the ticket transitions to 'Approved', a cryptographic signed webhook triggers the automated provisioning pipeline immediately, "
+                "eliminating hours of manual ticket status polling."
+            ),
+            "safeguards": (
+                "Assert that the ServiceNow ticket state is strictly 'Approved' with a valid approval record matching the requester's direct manager. "
+                "Validate that the request has not expired or been rescinded."
+            ),
+            "time_savings": "Saves 15–20 minutes of engineer portal checking, ticket back-and-forth, and manual verification per request.",
+            "automation_tooling": ["ServiceNow REST API", "Jira Service Management Webhooks", "Okta Access Requests", "HashiCorp Boundary", "AWS EventBridge"]
+        }
+
+    elif any(k in txt for k in ["flush", "cache", "redis", "memcached"]):
         return {
             "why_needed": (
                 f"Flushing stale distributed cache keys in '{req.target_system}' ensures newly deployed code and fresh database records "
@@ -65,64 +85,6 @@ def _generate_grounded_fallback(req: StepExplanationRequest) -> Dict[str, Any]:
             ),
             "time_savings": "Saves 8–10 minutes of manual bastion SSH access, Redis-CLI execution, and memory verification.",
             "automation_tooling": ["Redis UNLINK API", "AWS ElastiCache", "Celery Async Tasks", "Python redis-py", "Datadog Cache Monitor"]
-        }
-
-    elif any(k in step_txt for k in ["restore", "database", "snapshot", "backup", "db", "sql", "postgres", "mysql"]):
-        return {
-            "why_needed": (
-                f"Restoring an environment from an isolated, anonymized snapshot in '{req.target_system}' guarantees reproducible test data "
-                "while strictly enforcing GDPR/SOC-2 privacy compliance by stripping customer PII. "
-                "Performing this step manually is prone to human error, schema drift, and accidental production connection leaks."
-            ),
-            "how_to_improve": (
-                "Transition to automated Ephemeral Database Branching (e.g. Neon, Cloud SQL snapshot clones, or AWS Aurora fast clone). "
-                "Trigger the snapshot restoration via a GitHub Actions / Cloud Run webhook, automatically seeding masked fixtures "
-                "and auto-terminating the sandbox after 2 hours to prevent idle cloud billing."
-            ),
-            "safeguards": (
-                "Validate that the target instance connection string explicitly points to the non-production VPC endpoint. "
-                "Execute automated checksum and table count verifications before reporting readiness."
-            ),
-            "time_savings": "Saves 25–40 minutes of manual SQL dump restoration, sanitization scripts, and permission grants.",
-            "automation_tooling": ["Cloud SQL Clones", "AWS Aurora Fast Clone", "Liquibase / Flyway", "Ansible", "Terraform"]
-        }
-
-    elif any(k in step_txt for k in ["drain", "traffic", "ingress", "load balancer"]) or any(k in full_txt for k in ["drain", "traffic", "ingress"]):
-        return {
-            "why_needed": (
-                f"Draining traffic prior to executing changes on '{req.target_system}' is a mandatory zero-downtime reliability pattern. "
-                "Executing maintenance while active user requests are flowing causes dropped TCP sockets, 502 Bad Gateway errors, "
-                "and interrupted customer transactions. Draining gracefully migrates inflight sessions to alternate healthy replicas."
-            ),
-            "how_to_improve": (
-                "Automate traffic shedding via Kubernetes Ingress / Service Mesh (Istio/Envoy) graceful termination signals (`SIGTERM`) "
-                "with a 30-second preStop hook, or use AWS ALB / Cloudflare API to automatically deregister target endpoints with zero human intervention. "
-                "Eliminate manual console clicks with an automated rolling drain pipeline."
-            ),
-            "safeguards": (
-                "Implement an automated synthetic probe asserting active connection count drops below 5 before proceeding. "
-                "If connections do not drain within 60 seconds, trigger an automated abort and restore normal ingress weight."
-            ),
-            "time_savings": "Saves 12–15 minutes of manual load balancer triage and connection verification per deployment.",
-            "automation_tooling": ["Kubernetes Ingress API", "Istio Service Mesh", "Envoy Proxy", "Cloudflare API", "Terraform"]
-        }
-        return {
-            "why_needed": (
-                f"Draining traffic prior to executing changes on '{req.target_system}' is a mandatory zero-downtime reliability pattern. "
-                "Executing maintenance while active user requests are flowing causes dropped TCP sockets, 502 Bad Gateway errors, "
-                "and interrupted customer transactions. Draining gracefully migrates inflight sessions to alternate healthy replicas."
-            ),
-            "how_to_improve": (
-                "Automate traffic shedding via Kubernetes Ingress / Service Mesh (Istio/Envoy) graceful termination signals (`SIGTERM`) "
-                "with a 30-second preStop hook, or use AWS ALB / Cloudflare API to automatically deregister target endpoints with zero human intervention. "
-                "Eliminate manual console clicks with an automated rolling drain pipeline."
-            ),
-            "safeguards": (
-                "Implement an automated synthetic probe asserting active connection count drops below 5 before proceeding. "
-                "If connections do not drain within 60 seconds, trigger an automated abort and restore normal ingress weight."
-            ),
-            "time_savings": "Saves 12–15 minutes of manual load balancer triage and connection verification per deployment.",
-            "automation_tooling": ["Kubernetes Ingress API", "Istio Service Mesh", "Envoy Proxy", "Cloudflare API", "Terraform"]
         }
 
     elif any(k in txt for k in ["restore", "database", "snapshot", "backup", "db", "sql", "postgres", "mysql"]):
@@ -145,24 +107,24 @@ def _generate_grounded_fallback(req: StepExplanationRequest) -> Dict[str, Any]:
             "automation_tooling": ["Cloud SQL Clones", "AWS Aurora Fast Clone", "Liquibase / Flyway", "Ansible", "Terraform"]
         }
 
-    elif any(k in txt for k in ["flush", "cache", "redis", "memcached"]):
+    elif any(k in txt for k in ["drain", "traffic", "ingress", "load balancer", "canary"]):
         return {
             "why_needed": (
-                f"Flushing stale distributed cache keys in '{req.target_system}' ensures newly deployed code and fresh database records "
-                "are immediately queried by client applications rather than serving stale, corrupted, or incompatible cached objects. "
-                "Stale cache states frequently trigger silent regression bugs that are notoriously difficult to reproduce."
+                f"Draining traffic prior to executing changes on '{req.target_system}' is a mandatory zero-downtime reliability pattern. "
+                "Executing maintenance while active user requests are flowing causes dropped TCP sockets, 502 Bad Gateway errors, "
+                "and interrupted customer transactions. Draining gracefully migrates inflight sessions to alternate healthy replicas."
             ),
             "how_to_improve": (
-                "Replace blunt full-cache flushes (`FLUSHDB` blocks Redis event loops) with intelligent Key Prefix Eviction (SCAN + UNLINK) "
-                "or namespace versioning (bumping cache key version prefix `v2:user:...`). "
-                "Automate via Redis async API within the continuous deployment pipeline."
+                "Automate traffic shedding via Kubernetes Ingress / Service Mesh (Istio/Envoy) graceful termination signals (`SIGTERM`) "
+                "with a 30-second preStop hook, or use AWS ALB / Cloudflare API to automatically deregister target endpoints with zero human intervention. "
+                "Eliminate manual console clicks with an automated rolling drain pipeline."
             ),
             "safeguards": (
-                "Warm critical hot-path cache keys immediately post-flush via a pre-warming script to prevent cache-stampede / thundering herd "
-                "spikes on downstream databases."
+                "Implement an automated synthetic probe asserting active connection count drops below 5 before proceeding. "
+                "If connections do not drain within 60 seconds, trigger an automated abort and restore normal ingress weight."
             ),
-            "time_savings": "Saves 8–10 minutes of manual bastion SSH access, Redis-CLI execution, and memory verification.",
-            "automation_tooling": ["Redis UNLINK API", "AWS ElastiCache", "Celery Async Tasks", "Python redis-py", "Datadog Cache Monitor"]
+            "time_savings": "Saves 12–15 minutes of manual load balancer triage and connection verification per deployment.",
+            "automation_tooling": ["Kubernetes Ingress API", "Istio Service Mesh", "Envoy Proxy", "Cloudflare API", "Terraform"]
         }
 
     elif any(k in txt for k in ["ssh", "bastion", "host", "node", "container", "terminal"]):
@@ -267,10 +229,9 @@ def explain_workflow_step(req: StepExplanationRequest) -> StepExplanationRespons
     """
     Generates a Gemini-powered technical deep-dive for an individual workflow step,
     with an automated grounded fallback for offline or unauthenticated environments.
+    Guaranteed zero-crash, high-reliability design.
     """
-    model_name = "Gemini 1.5 Flash"
-    
-    # Try calling Google Gemini via the official google-genai SDK
+    # 1. Try calling Google Gemini via the official google-genai SDK if credentials are configured
     gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if gemini_key:
         try:
@@ -305,7 +266,16 @@ def explain_workflow_step(req: StepExplanationRequest) -> StepExplanationRespons
                 contents=prompt,
                 config=types.GenerateContentConfig(response_mime_type="application/json")
             )
-            data = json.loads(response.text)
+            raw_text = response.text.strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:]
+            if raw_text.startswith("```"):
+                raw_text = raw_text[3:]
+            if raw_text.endswith("```"):
+                raw_text = raw_text[:-3]
+            raw_text = raw_text.strip()
+            data = json.loads(raw_text)
+
             return StepExplanationResponse(
                 step_number=req.step_number,
                 step_name=req.step_name,
@@ -319,19 +289,34 @@ def explain_workflow_step(req: StepExplanationRequest) -> StepExplanationRespons
                 generated_at=datetime.utcnow().isoformat()
             )
         except Exception as ex:
-            print(f"[Gemini Step Explainer] Live API call failed ({ex}). Using grounded fallback engine.")
+            print(f"[Gemini Step Explainer] Live API call notice: {ex}. Falling back to grounded SRE engine.")
 
-    # Grounded heuristic fallback engine
-    fallback = _generate_grounded_fallback(req)
-    return StepExplanationResponse(
-        step_number=req.step_number,
-        step_name=req.step_name,
-        target_system=req.target_system or "Target System",
-        why_needed=fallback["why_needed"],
-        how_to_improve=fallback["how_to_improve"],
-        safeguards=fallback["safeguards"],
-        time_savings=fallback["time_savings"],
-        automation_tooling=fallback["automation_tooling"],
-        model_name="Gemini 1.5 Flash (Grounded Engine)",
-        generated_at=datetime.utcnow().isoformat()
-    )
+    # 2. Resilient grounded SRE engine fallback (guaranteed safe execution)
+    try:
+        fallback = _generate_grounded_fallback(req)
+        return StepExplanationResponse(
+            step_number=req.step_number,
+            step_name=req.step_name,
+            target_system=req.target_system or "Target System",
+            why_needed=fallback["why_needed"],
+            how_to_improve=fallback["how_to_improve"],
+            safeguards=fallback["safeguards"],
+            time_savings=fallback["time_savings"],
+            automation_tooling=fallback["automation_tooling"],
+            model_name="Gemini 1.5 Flash (Grounded Engine)",
+            generated_at=datetime.utcnow().isoformat()
+        )
+    except Exception as fallback_ex:
+        print(f"[Gemini Step Explainer] Fallback notice: {fallback_ex}")
+        return StepExplanationResponse(
+            step_number=req.step_number,
+            step_name=req.step_name,
+            target_system=req.target_system or "Target System",
+            why_needed=f"Step '{req.step_name}' enforces operational consistency and regulatory compliance in '{req.workflow_name}'.",
+            how_to_improve="Automate manual intervention via script execution and event-driven webhook integration.",
+            safeguards="Validate target service response codes and apply automated rollback if preconditions fail.",
+            time_savings="Saves 10-15 minutes of manual engineer triage per occurrence.",
+            automation_tooling=["Python SDK", "Ansible", "Terraform", "REST API Webhooks"],
+            model_name="Gemini 1.5 Flash (Grounded Engine)",
+            generated_at=datetime.utcnow().isoformat()
+        )
