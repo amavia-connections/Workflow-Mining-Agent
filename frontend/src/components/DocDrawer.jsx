@@ -38,10 +38,10 @@ export default function DocDrawer({ isOpen, onClose, activeView = 'overview' }) 
     { id: 'studio', title: 'Automation Studio & ADK Safety', icon: Cpu },
     { id: 'evaluation', title: 'Evaluation Center & Zero Leakage', icon: ShieldCheck },
     { id: 'config', title: 'Connectors & Cloud DLP', icon: Settings },
-    { id: 'chatops_pdf', title: 'PDF Memos & ChatOps (Opt A)', icon: Bell },
-    { id: 'queue_limits', title: 'Queue & Token Bucket (Opt B)', icon: Sliders },
-    { id: 'terraform_iac', title: 'GCP Terraform IaC (Opt C)', icon: Server },
-    { id: 'multitenant_sso', title: 'Tenants & SAML SSO (Opt D)', icon: Lock },
+    { id: 'chatops_pdf', title: 'Enterprise ChatOps & PDF Memos', icon: Bell },
+    { id: 'queue_limits', title: 'Distributed Queue & Rate Limiter', icon: Sliders },
+    { id: 'terraform_iac', title: 'Cloud Infrastructure & Terraform IaC', icon: Server },
+    { id: 'multitenant_sso', title: 'Multi-Tenant Architecture & SSO', icon: Lock },
   ];
 
   return (
@@ -359,7 +359,7 @@ Annual Labor Cost Saved = Annual Hours Saved * Hourly Labor Rate ($/hour)`}
 
           {selectedSection === 'chatops_pdf' && (
             <div className="doc-section">
-              <span className="badge badge-blue">Option A Architecture</span>
+              <span className="badge badge-blue">ChatOps Notification Architecture</span>
               <h3 style={{ marginTop: '10px', fontSize: '1.25rem', fontWeight: 700 }}>
                 Headless PDF Generator &amp; ChatOps Webhook Dispatcher
               </h3>
@@ -389,7 +389,7 @@ Annual Labor Cost Saved = Annual Hours Saved * Hourly Labor Rate ($/hour)`}
 
           {selectedSection === 'queue_limits' && (
             <div className="doc-section">
-              <span className="badge badge-emerald">Option B Architecture</span>
+              <span className="badge badge-emerald">Distributed Queue Architecture</span>
               <h3 style={{ marginTop: '10px', fontSize: '1.25rem', fontWeight: 700 }}>
                 Asynchronous Task Queue &amp; Token-Bucket Rate Limiter
               </h3>
@@ -413,7 +413,7 @@ Annual Labor Cost Saved = Annual Hours Saved * Hourly Labor Rate ($/hour)`}
 
           {selectedSection === 'terraform_iac' && (
             <div className="doc-section">
-              <span className="badge badge-purple">Option C Architecture</span>
+              <span className="badge badge-purple">Infrastructure & IaC Architecture</span>
               <h3 style={{ marginTop: '10px', fontSize: '1.25rem', fontWeight: 700 }}>
                 Production Google Cloud Platform Infrastructure-as-Code
               </h3>
@@ -433,7 +433,7 @@ Annual Labor Cost Saved = Annual Hours Saved * Hourly Labor Rate ($/hour)`}
 
           {selectedSection === 'multitenant_sso' && (
             <div className="doc-section">
-              <span className="badge badge-amber">Option D Architecture</span>
+              <span className="badge badge-amber">Multi-Tenant SSO Architecture</span>
               <h3 style={{ marginTop: '10px', fontSize: '1.25rem', fontWeight: 700 }}>
                 Multi-Tenant Isolation &amp; SAML 2.0 / OIDC SSO Handshake
               </h3>

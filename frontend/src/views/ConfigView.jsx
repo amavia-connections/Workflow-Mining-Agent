@@ -43,7 +43,7 @@ const CATALOG_PRESETS = [
     category: 'Enterprise ITSM',
     type: 'custom_rest',
     logo: '⚡',
-    status: 'Connected',
+    status: 'Disconnected',
     desc: 'Live Standalone REST API & Webhooks. Ingests real-time incidents from NovaDesk on Port 5000.',
     base_url: 'http://localhost:5000/api/v1/tickets'
   },
@@ -53,7 +53,7 @@ const CATALOG_PRESETS = [
     category: 'Enterprise ITSM',
     type: 'servicenow',
     logo: '🟢',
-    status: 'Connected',
+    status: 'Disconnected',
     desc: 'Table API & OAuth 2.0 / Basic Auth. Maps sys_id, short_description, and work logs.',
     base_url: 'https://demo-corp.service-now.com'
   },
@@ -63,7 +63,7 @@ const CATALOG_PRESETS = [
     category: 'Enterprise ITSM',
     type: 'jira',
     logo: '🔷',
-    status: 'Connected',
+    status: 'Disconnected',
     desc: 'Atlassian Cloud OAuth 2.0 / API Token. Ingests issues, priority, and resolution worklogs.',
     base_url: 'https://demo-corp.atlassian.net'
   },
@@ -73,7 +73,7 @@ const CATALOG_PRESETS = [
     category: 'Enterprise ITSM',
     type: 'zendesk',
     logo: '🟣',
-    status: 'Live Ready',
+    status: 'Disconnected',
     desc: 'REST API v2 & OAuth 2.0. Solved ticket comments, custom tags, and SLA resolution times.',
     base_url: 'https://enterprisecorp.zendesk.com'
   },
@@ -93,7 +93,7 @@ const CATALOG_PRESETS = [
     category: 'Enterprise ITSM',
     type: 'bmc_helix',
     logo: '🔴',
-    status: 'Live Ready',
+    status: 'Disconnected',
     desc: 'BMC Remedy REST API. Enterprise change requests, problem tickets, and work orders.',
     base_url: 'https://helix.enterprise.corp/api/arsys/v1'
   },
@@ -105,7 +105,7 @@ const CATALOG_PRESETS = [
     category: 'DevOps & SRE',
     type: 'github',
     logo: '🐙',
-    status: 'Connected',
+    status: 'Disconnected',
     desc: 'Personal Access Token / GitHub App. Ingests closed issues, PR resolution comments, and run logs.',
     base_url: 'https://api.github.com/repos/enterprise-org/core-platform'
   },
@@ -125,7 +125,7 @@ const CATALOG_PRESETS = [
     category: 'DevOps & SRE',
     type: 'linear',
     logo: '📐',
-    status: 'Live Ready',
+    status: 'Disconnected',
     desc: 'Linear GraphQL API. High-velocity engineering issues, triage states, and resolution cycles.',
     base_url: 'https://api.linear.app/graphql'
   },
@@ -135,7 +135,7 @@ const CATALOG_PRESETS = [
     category: 'DevOps & SRE',
     type: 'pagerduty',
     logo: '🚨',
-    status: 'Connected',
+    status: 'Disconnected',
     desc: 'Incident REST API & Webhooks. Captures on-call alerts, MTTA/MTTR timestamps, and postmortems.',
     base_url: 'https://api.pagerduty.com/incidents'
   },
@@ -147,7 +147,7 @@ const CATALOG_PRESETS = [
     category: 'Custom Platform',
     type: 'custom_webhook',
     logo: '⚡',
-    status: 'Connected',
+    status: 'Disconnected',
     desc: 'HMAC-SHA256 authenticated listener. Receives real-time JSON payloads from proprietary engines.',
     base_url: '/api/connectors/custom/webhook'
   },
@@ -157,7 +157,7 @@ const CATALOG_PRESETS = [
     category: 'Custom Platform',
     type: 'custom_rest',
     logo: '🛰️',
-    status: 'Live Ready',
+    status: 'Disconnected',
     desc: 'Configurable endpoints, custom Bearer/API-key headers, and JSONPath extraction schema.',
     base_url: 'https://internal-ticketing.corp.local/api/graphql'
   },
@@ -167,7 +167,7 @@ const CATALOG_PRESETS = [
     category: 'Custom Platform',
     type: 'direct_db',
     logo: '🗄️',
-    status: 'Live Ready',
+    status: 'Disconnected',
     desc: 'Read-only connection strings for PostgreSQL, MySQL, and Microsoft SQL Server.',
     base_url: 'postgresql://readonly_analyst@internal-db.corp.local:5432/ticketing_dw'
   }
@@ -179,6 +179,38 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
   const [selectedConnector, setSelectedConnector] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [catalogCategory, setCatalogCategory] = useState('ALL');
+  const [liveConnectors, setLiveConnectors] = useState({});
+  const [loadingConnectors, setLoadingConnectors] = useState(true);
+
+  const fetchConnectors = async () => {
+    try {
+      const res = await fetch('/api/connectors');
+      if (res.ok) {
+        const data = await res.json();
+        const map = {};
+        data.forEach(c => {
+          map[c.connector_id] = c;
+        });
+        setLiveConnectors(map);
+      }
+    } catch (err) {
+      console.error('Failed to fetch live connectors:', err);
+    } finally {
+      setLoadingConnectors(false);
+    }
+  };
+
+  const handleDisconnectConnector = async (connectorId) => {
+    if (!window.confirm("Disconnect this integration? Active credentials and sync session will be reset.")) return;
+    try {
+      const res = await fetch(`/api/connectors/${connectorId}/disconnect`, { method: 'POST' });
+      if (res.ok) {
+        fetchConnectors();
+      }
+    } catch (e) {
+      console.error('Disconnect failed:', e);
+    }
+  };
 
   // Synthetic Generator state
   const [synthCount, setSynthCount] = useState(3000);
@@ -196,6 +228,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
       .then(res => res.json())
       .then(data => setHealth(data))
       .catch(err => console.error('Health check failed:', err));
+    fetchConnectors();
   }, []);
 
   const handleOpenConnector = (connector) => {
@@ -286,12 +319,12 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
         <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e2e8f0', marginTop: '16px', paddingBottom: '2px', overflowX: 'auto' }}>
           {[
             { id: 'connectors', label: '1. Connectors Hub', icon: Link2 },
-            { id: 'queue', label: '2. Task Queue & Throttling (Opt B)', icon: Gauge },
-            { id: 'chatops', label: '3. ChatOps Webhooks (Opt A)', icon: MessageSquare },
-            { id: 'tenants', label: '4. Tenants & SAML SSO (Opt D)', icon: Building },
+            { id: 'queue', label: '2. Task Queue & Throttling', icon: Gauge },
+            { id: 'chatops', label: '3. ChatOps & Webhooks', icon: MessageSquare },
+            { id: 'tenants', label: '4. Enterprise Multi-Tenant & SSO', icon: Building },
             { id: 'audit', label: '5. Compliance Audit Trail', icon: ShieldCheck },
-            { id: 'dlp', label: '6. Cloud DLP Sandbox', icon: Shield },
-            { id: 'data', label: '7. Data Import & Reset', icon: Database },
+            { id: 'dlp', label: '6. Cloud DLP Privacy Engine', icon: Shield },
+            { id: 'data', label: '7. Data Management & Ingestion', icon: Database },
           ].map(tab => {
             const Icon = tab.icon;
             const isActive = activeSubTab === tab.id;
@@ -311,82 +344,165 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
       </div>
 
       {/* SUB-TAB 1: CONNECTORS & INTEGRATION CATALOG */}
-      {activeSubTab === 'connectors' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Category Filter Controls */}
-          <div className="card" style={{ padding: '14px 20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
-                Filter Integrations Catalog:
+      {activeSubTab === 'connectors' && (() => {
+        const connectedCount = Object.values(liveConnectors).filter(
+          c => (c.last_sync_status === 'SUCCESS' || c.last_sync_status === 'CONNECTED') && (c.total_tickets_synced > 0 || c.last_synced_at)
+        ).length;
+        const totalTicketsFromConnectors = Object.values(liveConnectors).reduce(
+          (acc, c) => acc + (c.total_tickets_synced || 0), 0
+        );
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Live Operational Metrics Bar */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+              <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Active Integrations</div>
+                <div style={{ fontSize: '1.35rem', fontWeight: 700, color: connectedCount > 0 ? '#059669' : '#0f172a', marginTop: '2px' }}>
+                  {connectedCount} <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#64748b' }}>/ 12 Connected</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: connectedCount > 0 ? '#059669' : '#64748b', marginTop: '2px' }}>
+                  {connectedCount > 0 ? 'Live sync established' : 'No active connections'}
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {[
-                  { key: 'ALL', label: 'All Connectors (12)' },
-                  { key: 'ITSM', label: 'Enterprise ITSM (5)' },
-                  { key: 'DEVOPS', label: 'DevOps / SRE (4)' },
-                  { key: 'CUSTOM', label: 'Custom In-House Engines (3)' },
-                ].map(cat => (
-                  <button
-                    key={cat.key}
-                    className={`btn btn-sm ${catalogCategory === cat.key ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setCatalogCategory(cat.key)}
-                    style={{ fontSize: '0.78rem' }}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
+
+              <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Total Ingested Tickets</div>
+                <div style={{ fontSize: '1.35rem', fontWeight: 700, color: totalTicketsFromConnectors > 0 ? '#2563eb' : '#0f172a', marginTop: '2px' }}>
+                  {totalTicketsFromConnectors.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                  Canonical normalized records
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Cloud DLP Privacy Gate</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#059669', marginTop: '4px' }}>
+                  🛡️ Active &amp; Enforced
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                  PII, Passwords &amp; IPs Masked
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Sync Schedule</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+                  ⚡ Real-Time / Cron
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                  REST Webhooks &amp; Pollers
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Connectors Logo Grid */}
-          <div className="connector-grid">
-            {filteredCatalog.map(connector => (
-              <div 
-                key={connector.id} 
-                className="connector-card"
-                onClick={() => handleOpenConnector(connector)}
-              >
-                <div>
-                  <div className="connector-card-header">
-                    <span className="connector-logo">{connector.logo}</span>
-                    <span className={`badge ${
-                      connector.status === 'Connected' ? 'badge-green' :
-                      connector.status === 'Live Ready' ? 'badge-blue' : 'badge-gray'
-                    }`}>
-                      {connector.status}
-                    </span>
-                  </div>
-                  <div className="connector-name">{connector.name}</div>
-                  <div style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: 600, marginTop: '2px' }}>
-                    {connector.category}
-                  </div>
-                  <p className="connector-desc">{connector.desc}</p>
+            {/* Category Filter Controls */}
+            <div className="card" style={{ padding: '14px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                  Filter Integrations Catalog:
                 </div>
-
-                <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Configure &amp; Map</span>
-                  <span style={{ color: '#2563eb', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '2px' }}>
-                    Open Setup &rarr;
-                  </span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[
+                    { key: 'ALL', label: 'All Connectors (12)' },
+                    { key: 'ITSM', label: 'Enterprise ITSM (5)' },
+                    { key: 'DEVOPS', label: 'DevOps / SRE (4)' },
+                    { key: 'CUSTOM', label: 'Custom In-House Engines (3)' },
+                  ].map(cat => (
+                    <button
+                      key={cat.key}
+                      className={`btn btn-sm ${catalogCategory === cat.key ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setCatalogCategory(cat.key)}
+                      style={{ fontSize: '0.78rem' }}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
 
-      {/* SUB-TAB 2: DISTRIBUTED TASK QUEUE & RATE LIMITER (OPTION B) */}
+            {/* Connectors Logo Grid */}
+            <div className="connector-grid">
+              {filteredCatalog.map(connector => {
+                const live = liveConnectors[connector.id];
+                const isConnected = live 
+                  ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') && (live.total_tickets_synced > 0 || live.last_synced_at)
+                  : false;
+                const isFailed = live ? live.last_sync_status === 'FAILED' : false;
+                const displayStatus = isConnected ? 'Connected' : (isFailed ? 'Error' : 'Disconnected');
+                const badgeClass = isConnected ? 'badge-green' : (isFailed ? 'badge-red' : 'badge-gray');
+                const ticketsCount = live?.total_tickets_synced || 0;
+
+                return (
+                  <div 
+                    key={connector.id} 
+                    className="connector-card"
+                    style={{ borderColor: isConnected ? '#86efac' : '#e2e8f0', background: isConnected ? '#fafffd' : '#ffffff' }}
+                    onClick={() => handleOpenConnector(connector)}
+                  >
+                    <div>
+                      <div className="connector-card-header">
+                        <span className="connector-logo">{connector.logo}</span>
+                        <span className={`badge ${badgeClass}`}>
+                          {displayStatus}
+                        </span>
+                      </div>
+                      <div className="connector-name">{connector.name}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: 600, marginTop: '2px' }}>
+                        {connector.category}
+                      </div>
+                      <p className="connector-desc">{connector.desc}</p>
+                    </div>
+
+                    <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.74rem' }}>
+                        <span style={{ color: isConnected ? '#059669' : '#64748b', fontWeight: isConnected ? 600 : 400 }}>
+                          {isConnected ? `✓ ${ticketsCount} tickets synced` : 'Not Connected'}
+                        </span>
+                        {isConnected && (
+                          <button
+                            className="btn btn-sm"
+                            style={{ padding: '2px 8px', fontSize: '0.7rem', color: '#dc2626', border: '1px solid #fecaca', background: '#ffffff', borderRadius: '4px' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDisconnectConnector(connector.id);
+                            }}
+                            title="Disconnect this connector"
+                          >
+                            Disconnect
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                          {isConnected ? 'Settings & Mapping' : 'Configure & Map'}
+                        </span>
+                        <span style={{ color: '#2563eb', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '2px' }}>
+                          {isConnected ? 'Sync / Edit →' : 'Open Setup →'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* SUB-TAB 2: DISTRIBUTED TASK QUEUE & RATE LIMITER */}
       {activeSubTab === 'queue' && (
         <TaskQueueSection />
       )}
 
-      {/* SUB-TAB 3: CHATOPS & NOTIFICATION WEBHOOKS (OPTION A) */}
+      {/* SUB-TAB 3: CHATOPS & NOTIFICATION WEBHOOKS */}
       {activeSubTab === 'chatops' && (
         <ChatOpsWebhooksSection />
       )}
 
-      {/* SUB-TAB 4: MULTI-TENANT DIRECTORY & SAML SSO (OPTION D) */}
+      {/* SUB-TAB 4: MULTI-TENANT DIRECTORY & SAML SSO */}
       {activeSubTab === 'tenants' && (
         <MultiTenantDirectorySection />
       )}
@@ -510,7 +626,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
         connector={selectedConnector}
         onClose={() => setIsModalOpen(false)}
         onSyncCompleted={(res) => {
-          console.log('Sync finished:', res);
+          fetchConnectors();
         }}
       />
     </div>
@@ -519,7 +635,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
 
 
 /**
- * Distributed Task Queue & Rate Limiter Component (Option B)
+ * Distributed Task Queue & Rate Limiter Component
  */
 function TaskQueueSection() {
   const [metrics, setMetrics] = useState(null);
@@ -639,7 +755,7 @@ function TaskQueueSection() {
 
 
 /**
- * ChatOps & Notification Webhooks Section (Option A)
+ * ChatOps & Notification Webhooks Section
  */
 function ChatOpsWebhooksSection() {
   const [platform, setPlatform] = useState('slack');
@@ -752,7 +868,7 @@ function ChatOpsWebhooksSection() {
 
 
 /**
- * Multi-Tenant Directory & SAML SSO Section (Option D)
+ * Multi-Tenant Directory & SAML SSO Section
  */
 function MultiTenantDirectorySection() {
   const [tenants, setTenants] = useState([]);
@@ -1067,7 +1183,7 @@ function ComplianceAuditTrailSection() {
 
 
 /**
- * Cloud DLP Privacy Sandbox Test Bench Component
+ * Cloud DLP Privacy Engine Component
  */
 function CloudDlpSandboxSection() {
   const [dlpSample, setDlpSample] = useState(
@@ -1096,7 +1212,7 @@ function CloudDlpSandboxSection() {
   return (
     <div className="card">
       <h3 className="card-title">
-        <Shield size={18} color="#059669" /> Interactive Cloud DLP Sanitization Sandbox
+        <Shield size={18} color="#059669" /> Interactive Cloud DLP Privacy Engine
       </h3>
       <p className="card-desc">
         Test privacy-first sanitization before persisting inbound tickets. Masks passwords, GitHub PATs, internal IPv4 addresses, and email addresses.

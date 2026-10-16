@@ -55,7 +55,7 @@ class ConnectorManager:
             api_token_or_secret="demo-pwd-masked-xxxx",
             query_filter="stateIN6,7^ORDERBYDESCsys_updated_on",
             icon_key="servicenow",
-            last_sync_status=SyncStatus.CONNECTED
+            last_sync_status=SyncStatus.IDLE
         ))
 
         self._add(ConnectorConfig(
@@ -69,7 +69,7 @@ class ConnectorManager:
             api_token_or_secret="demo-token-masked-xxxx",
             query_filter="project = 'IT' AND status IN ('Closed', 'Resolved') ORDER BY updated DESC",
             icon_key="jira",
-            last_sync_status=SyncStatus.CONNECTED
+            last_sync_status=SyncStatus.IDLE
         ))
 
         self._add(ConnectorConfig(
@@ -81,7 +81,7 @@ class ConnectorManager:
             auth_type=AuthType.API_TOKEN,
             query_filter="status IN ('Resolved', 'Closed')",
             icon_key="novadesk",
-            last_sync_status=SyncStatus.CONNECTED
+            last_sync_status=SyncStatus.IDLE
         ))
 
         self._add(ConnectorConfig(
@@ -140,7 +140,7 @@ class ConnectorManager:
             api_token_or_secret="ghp_demoTokenxxxx",
             query_filter="is:issue is:closed label:incident,bug",
             icon_key="github",
-            last_sync_status=SyncStatus.CONNECTED
+            last_sync_status=SyncStatus.IDLE
         ))
 
         self._add(ConnectorConfig(
@@ -182,7 +182,7 @@ class ConnectorManager:
             api_token_or_secret="pd_v2_token_xxxx",
             query_filter="statuses[]=resolved&urgencies[]=high",
             icon_key="pagerduty",
-            last_sync_status=SyncStatus.CONNECTED
+            last_sync_status=SyncStatus.IDLE
         ))
 
         # =========================================================================
@@ -198,7 +198,7 @@ class ConnectorManager:
             api_token_or_secret="whsec_live_9918237461928374abcdef",
             query_filter="HMAC-SHA256 Signed JSON Ingestion",
             icon_key="webhook",
-            last_sync_status=SyncStatus.CONNECTED
+            last_sync_status=SyncStatus.IDLE
         ))
 
         self._add(ConnectorConfig(
@@ -243,6 +243,20 @@ class ConnectorManager:
     def upsert_connector(self, config: ConnectorConfig) -> ConnectorConfig:
         self._connectors[config.connector_id] = config
         return config
+
+    def disconnect_connector(self, connector_id: str) -> Dict[str, Any]:
+        cfg = self.get_connector(connector_id)
+        if not cfg:
+            raise KeyError(f"Connector '{connector_id}' not found.")
+        cfg.last_sync_status = SyncStatus.IDLE
+        cfg.last_synced_at = None
+        cfg.total_tickets_synced = 0
+        cfg.last_sync_message = "Disconnected by user."
+        return {
+            "status": "disconnected",
+            "connector_id": connector_id,
+            "message": f"Successfully disconnected {cfg.name}."
+        }
 
     def test_connection(self, connector_id: str, override_url: Optional[str] = None, override_token: Optional[str] = None) -> Dict[str, Any]:
         cfg = self.get_connector(connector_id)

@@ -670,6 +670,17 @@ class ConnectorTestPayload(BaseModel):
     api_key: Optional[str] = None
     credentials: Optional[Dict[str, Any]] = None
 
+@app.post("/api/connectors/{connector_id}/disconnect")
+def disconnect_connector(connector_id: str):
+    """Disconnects an active connector and resets its sync status."""
+    try:
+        return connector_manager.disconnect_connector(connector_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/connectors/{connector_id}/test")
 def test_connector(connector_id: str, req: Optional[ConnectorTestPayload] = None):
     """Validates connectivity and authentication against the provider instance."""

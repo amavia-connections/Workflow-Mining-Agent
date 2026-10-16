@@ -9,6 +9,7 @@ export default function TicketExplorerView({ onNavigateToWorkflow }) {
   const [selectedWorkflow, setSelectedWorkflow] = useState('');
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [availableWorkflows, setAvailableWorkflows] = useState([]);
   const limit = 25;
 
   const fetchTickets = async () => {
@@ -28,6 +29,16 @@ export default function TicketExplorerView({ onNavigateToWorkflow }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetch('/api/workflows')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setAvailableWorkflows(data);
+        else if (data && data.workflows) setAvailableWorkflows(data.workflows);
+      })
+      .catch(e => console.error('Failed to fetch workflows for filter:', e));
+  }, []);
 
   useEffect(() => {
     fetchTickets();
@@ -81,12 +92,22 @@ export default function TicketExplorerView({ onNavigateToWorkflow }) {
             }}
           >
             <option value="">All Workflow Clusters</option>
-            <option value="WF-01">WF-01: Access Requests</option>
-            <option value="WF-02">WF-02: Env Resets</option>
-            <option value="WF-03">WF-03: Log Cleanup</option>
-            <option value="WF-04">WF-04: Password Resets</option>
-            <option value="WF-05">WF-05: Deployment Checks</option>
-            <option value="WF-06">WF-06: Cert Renewals</option>
+            {availableWorkflows.length > 0 ? (
+              availableWorkflows.map(wf => (
+                <option key={wf.workflow_id} value={wf.workflow_id}>
+                  {wf.workflow_id}: {wf.name}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="WF-01">WF-01: Access Requests</option>
+                <option value="WF-02">WF-02: Env Resets</option>
+                <option value="WF-03">WF-03: Log Cleanup</option>
+                <option value="WF-04">WF-04: Password Resets</option>
+                <option value="WF-05">WF-05: Deployment Checks</option>
+                <option value="WF-06">WF-06: Cert Renewals</option>
+              </>
+            )}
           </select>
 
           <button className="btn btn-outline" onClick={() => { setSearch(''); setSelectedWorkflow(''); setPage(0); }}>
