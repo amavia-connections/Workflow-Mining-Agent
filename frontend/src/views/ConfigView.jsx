@@ -173,7 +173,7 @@ const CATALOG_PRESETS = [
   }
 ];
 
-export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRole = 'Governance Approver' }) {
+export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRole = 'Governance Approver', onSyncCompleted }) {
   const [activeSubTab, setActiveSubTab] = useState('connectors'); // 'connectors', 'queue', 'chatops', 'tenants', 'audit', 'dlp', 'data'
   const [health, setHealth] = useState(null);
   const [selectedConnector, setSelectedConnector] = useState(null);
@@ -232,7 +232,17 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
   }, []);
 
   const handleOpenConnector = (connector) => {
-    setSelectedConnector(connector);
+    const live = liveConnectors[connector.id];
+    const isConn = live ? (live.last_sync_status === 'SUCCESS' || live.last_sync_status === 'CONNECTED') : false;
+    const merged = {
+      ...connector,
+      ...(live || {}),
+      isConnected: isConn,
+      base_url: (live && live.base_url && !live.base_url.includes('demo-corp')) ? live.base_url : connector.base_url,
+      username_or_email: live?.username_or_email || connector.username_or_email || '',
+      total_tickets_synced: live?.total_tickets_synced || 0
+    };
+    setSelectedConnector(merged);
     setIsModalOpen(true);
   };
 
@@ -627,6 +637,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
         onClose={() => setIsModalOpen(false)}
         onSyncCompleted={(res) => {
           fetchConnectors();
+          if (onSyncCompleted) onSyncCompleted(res);
         }}
       />
     </div>

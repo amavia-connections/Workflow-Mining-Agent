@@ -246,10 +246,12 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
 
 def ensure_tenant_pipeline(tenant_id: str) -> str:
     """Ensures the specified tenant pipeline state."""
-    global active_run_id
     if tenant_id in tenant_runs and tenant_runs[tenant_id] in discovered_workflows_cache:
-        active_run_id = tenant_runs[tenant_id]
-        return tenant_runs[tenant_id]
+        cached_wfs = discovered_workflows_cache[tenant_runs[tenant_id]]
+        has_tickets = bool(repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id))
+        if cached_wfs or not has_tickets:
+            active_run_id = tenant_runs[tenant_id]
+            return tenant_runs[tenant_id]
         
     tenant_info = ENTERPRISE_TENANTS.get(tenant_id, list(ENTERPRISE_TENANTS.values())[0])
     run_id = f"RUN-{tenant_id.replace('tenant_', '').upper()}-001"
@@ -712,6 +714,16 @@ def sync_connector(connector_id: str, req: ConnectorSyncRequest = ConnectorSyncR
             override_token=req.api_key,
             tenant_id=active_tenant
         )
+        # Adopt any newly synced records into active tenant and run pipeline
+        repo.adopt_tickets_for_tenant(active_tenant)
+        run_id = f"RUN-{active_tenant.replace('tenant_', '').upper()}-001"
+        discovered_workflows_cache.pop(run_id, None)
+        tenant_runs.pop(active_tenant, None)
+        try:
+            ensure_tenant_pipeline(active_tenant)
+        except Exception as pipe_err:
+            print(f"[Warning] Pipeline analysis execution warning: {pipe_err}")
+
         return summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

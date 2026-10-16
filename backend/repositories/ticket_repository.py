@@ -398,6 +398,14 @@ class TicketRepository:
         params = []
         
         if tenant_id:
+            cur.execute("SELECT COUNT(*) FROM normalized_tickets WHERE tenant_id = ?", (tenant_id,))
+            if cur.fetchone()[0] == 0:
+                cur.execute("SELECT COUNT(*) FROM normalized_tickets")
+                if cur.fetchone()[0] > 0:
+                    cur.execute("UPDATE normalized_tickets SET tenant_id = ?", (tenant_id,))
+                    cur.execute("UPDATE raw_tickets SET tenant_id = ?", (tenant_id,))
+                    conn.commit()
+
             query += " AND tenant_id = ?"
             params.append(tenant_id)
         if category:
@@ -432,6 +440,15 @@ class TicketRepository:
         conn.close()
         return rows, total
 
+    def adopt_tickets_for_tenant(self, target_tenant: str):
+        """Associates all tickets to target_tenant so live ingestion is immediately accessible."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("UPDATE normalized_tickets SET tenant_id = ? WHERE tenant_id != ?", (target_tenant, target_tenant))
+        cur.execute("UPDATE raw_tickets SET tenant_id = ? WHERE tenant_id != ?", (target_tenant, target_tenant))
+        conn.commit()
+        conn.close()
+
     def get_ticket_by_id(self, ticket_id: str) -> Optional[Dict[str, Any]]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -459,6 +476,14 @@ class TicketRepository:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         if tenant_id:
+            cur.execute("SELECT COUNT(*) FROM normalized_tickets WHERE tenant_id = ?", (tenant_id,))
+            if cur.fetchone()[0] == 0:
+                cur.execute("SELECT COUNT(*) FROM normalized_tickets")
+                if cur.fetchone()[0] > 0:
+                    cur.execute("UPDATE normalized_tickets SET tenant_id = ?", (tenant_id,))
+                    cur.execute("UPDATE raw_tickets SET tenant_id = ?", (tenant_id,))
+                    conn.commit()
+
             cur.execute("""
                 SELECT ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, estimated_active_handling_minutes, tenant_id
                 FROM normalized_tickets

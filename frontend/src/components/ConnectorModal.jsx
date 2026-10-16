@@ -73,17 +73,25 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
   const [syncSuccess, setSyncSuccess] = useState(false);
 
   // Reset and sync state when opening a connector
+  const isAlreadyConnected = Boolean(connector?.isConnected || connector?.last_sync_status === 'SUCCESS' || connector?.last_sync_status === 'CONNECTED');
+
   useEffect(() => {
     if (connector) {
-      setStep(1);
+      const isConn = Boolean(connector.isConnected || connector.last_sync_status === 'SUCCESS' || connector.last_sync_status === 'CONNECTED');
+      setStep(isConn ? 4 : 1);
       setTenantUrl(connector.base_url || '');
       setUsernameOrEmail(connector.username_or_email || '');
       setApiKey('');
-      setTestResult(null);
+      setTestResult(isConn ? {
+        status: 'connected',
+        provider: connector.name,
+        authenticated_user: connector.username_or_email,
+        message: `Connected to ${connector.base_url || connector.name}`
+      } : null);
       setIsTesting(false);
-      setSyncProgress(0);
-      setSyncStatusText('');
-      setSyncSuccess(false);
+      setSyncProgress(isConn ? 100 : 0);
+      setSyncStatusText(isConn ? `Synchronized (${connector.total_tickets_synced || 0} tickets)` : '');
+      setSyncSuccess(isConn);
       setIsDemoMode(false); // Live by default
 
       const isSnow = connector.type === 'servicenow' || (connector.id && connector.id.includes('servicenow'));
@@ -284,6 +292,26 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
         {/* STEP 1: AUTHENTICATION & CREDENTIALS */}
         {step === 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {isAlreadyConnected && (
+              <div style={{ background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: '8px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#065f46', fontSize: '0.88rem' }}>
+                    ✓ Integration Active &amp; Connected
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#047857', marginTop: '2px' }}>
+                    Currently syncing with <strong>{tenantUrl || connector.base_url}</strong> as <strong>{usernameOrEmail || connector.username_or_email}</strong>.
+                  </div>
+                </div>
+                <button 
+                  type="button" 
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setStep(4)}
+                  style={{ fontSize: '0.78rem' }}
+                >
+                  Go to Sync &amp; Settings (Step 4) &rarr;
+                </button>
+              </div>
+            )}
             <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <strong style={{ fontSize: '0.88rem', color: '#0f172a' }}>Connection Mode</strong>
@@ -487,6 +515,26 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
         {/* STEP 4: SYNC & DLP POLICY */}
         {step === 4 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {isAlreadyConnected && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '12px 16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#166534', fontSize: '0.9rem' }}>
+                    ✓ Connected to {tenantUrl || connector.base_url}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#15803d', marginTop: '2px' }}>
+                    Authenticated as <strong>{usernameOrEmail || connector.username_or_email || 'Active Account'}</strong> &bull; <strong>{connector.total_tickets_synced || 0}</strong> tickets synced
+                  </div>
+                </div>
+                <button 
+                  type="button" 
+                  className="btn btn-outline btn-sm"
+                  style={{ fontSize: '0.75rem', borderColor: '#86efac', background: '#fff', color: '#166534' }}
+                  onClick={() => setStep(1)}
+                >
+                  Edit Connection Credentials ✏️
+                </button>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               {/* Range Selector */}
               <div>

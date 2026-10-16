@@ -92,6 +92,10 @@ export default function App() {
     fetchTenants();
   }, []);
 
+  useEffect(() => {
+    fetchSummary();
+  }, [activeTab]);
+
   const handleRunAnalysis = async (hourlyRate = 65.0, automatablePct = 0.75) => {
     setIsRunningAnalysis(true);
     setAnalysisStatusText('Triggering workflow analysis pipeline...');
@@ -408,6 +412,7 @@ export default function App() {
               onRunAnalysis={handleRunAnalysis}
               isRunningAnalysis={isRunningAnalysis}
               currentRole={currentRole}
+              onSyncCompleted={fetchSummary}
             />
           )}
         </div>
