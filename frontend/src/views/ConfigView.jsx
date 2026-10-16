@@ -38,6 +38,16 @@ import MetricTooltip from '../components/MetricTooltip';
 const CATALOG_PRESETS = [
   // Category A: Enterprise ITSM
   {
+    id: 'novadesk-itsm-01',
+    name: 'NovaDesk ITSM',
+    category: 'Enterprise ITSM',
+    type: 'custom_rest',
+    logo: '⚡',
+    status: 'Connected',
+    desc: 'Live Standalone REST API & Webhooks. Ingests real-time incidents from NovaDesk on Port 5000.',
+    base_url: 'http://localhost:5000/api/v1/tickets'
+  },
+  {
     id: 'servicenow-enterprise-01',
     name: 'ServiceNow ITSM',
     category: 'Enterprise ITSM',

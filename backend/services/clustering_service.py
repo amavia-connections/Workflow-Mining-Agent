@@ -50,10 +50,12 @@ class ClusteringService:
 
         # Local Semantic Vectorizer
         cleaned_texts = [clean_text(t) for t in texts]
+        min_df_val = 1 if len(cleaned_texts) < 30 else 2
+        max_df_val = 1.0 if len(cleaned_texts) < 30 else 0.85
         vectorizer = TfidfVectorizer(
             ngram_range=(1, 2),
-            max_df=0.85,
-            min_df=3,
+            max_df=max_df_val,
+            min_df=min_df_val,
             max_features=5000,
             sublinear_tf=True
         )
@@ -103,11 +105,14 @@ class ClusteringService:
         
         embeddings = self._generate_embeddings(texts)
         
+        # Adaptive k clusters: ensure k does not exceed number of tickets
+        k = max(1, min(self.n_clusters, len(tickets)))
+
         # MiniBatchKMeans with k clusters
         kmeans = MiniBatchKMeans(
-            n_clusters=self.n_clusters,
+            n_clusters=k,
             random_state=self.random_state,
-            batch_size=256,
+            batch_size=min(256, max(10, len(tickets))),
             n_init=5
         )
         labels = kmeans.fit_predict(embeddings)

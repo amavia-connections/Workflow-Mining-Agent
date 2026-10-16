@@ -1,12 +1,11 @@
 """
 Repository layer for ticket storage, ingestion, and deterministic SQL analytics.
-Supports Cloud SQL PostgreSQL when DATABASE_URL is configured, and SQLite for standalone deterministic local mode.
+Supports BigQuery when cloud credentials exist, and SQLite for standalone deterministic local mode.
 """
 
 import os
 import sqlite3
 import json
-import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
@@ -14,139 +13,13 @@ import pandas as pd
 from backend.config import settings, is_cloud_mode_ready
 from backend.models.ticket import Ticket, TicketIngestionResult
 
-logger = logging.getLogger("ticket_repository")
-
-try:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor, execute_values
-    HAS_PSYCOPG2 = True
-except ImportError:
-    HAS_PSYCOPG2 = False
-
 
 class TicketRepository:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or os.path.join(settings.DATA_DIR, "workflow_mining.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.is_cloud = is_cloud_mode_ready()
-        
-        db_url = (os.environ.get("DATABASE_URL") or settings.DATABASE_URL or "").strip()
-        self.is_postgres = bool(
-            HAS_PSYCOPG2 and (
-                db_url.startswith("postgresql://") or 
-                db_url.startswith("postgres://")
-            )
-        )
-        self.db_url = db_url
-
-        if self.is_postgres:
-            logger.info("TicketRepository initialized in PostgreSQL mode.")
-            self._init_postgres_db()
-        else:
-            logger.info("TicketRepository initialized in SQLite mode.")
-            self._init_sqlite_db()
-
-    def _init_postgres_db(self):
-        """Initializes canonical schema tables in PostgreSQL if not already created."""
-        try:
-            conn = psycopg2.connect(self.db_url)
-            with conn.cursor() as cur:
-                cur.execute("CREATE SCHEMA IF NOT EXISTS workflow_mining;")
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS workflow_mining.raw_tickets (
-                        raw_id TEXT,
-                        ticket_id TEXT PRIMARY KEY,
-                        tenant_id TEXT DEFAULT 'tenant_demo_sandbox',
-                        title TEXT NOT NULL,
-                        description TEXT,
-                        category TEXT,
-                        priority TEXT,
-                        created_at TIMESTAMPTZ NOT NULL,
-                        resolved_at TIMESTAMPTZ,
-                        assignee TEXT,
-                        resolution_notes TEXT,
-                        status TEXT DEFAULT 'Closed',
-                        workflow_ground_truth TEXT,
-                        handling_minutes_ground_truth DOUBLE PRECISION,
-                        ingestion_batch_id TEXT,
-                        ingested_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS workflow_mining.normalized_tickets (
-                        ticket_id TEXT PRIMARY KEY,
-                        tenant_id TEXT DEFAULT 'tenant_demo_sandbox',
-                        normalized_title TEXT,
-                        normalized_description TEXT,
-                        normalized_resolution_notes TEXT,
-                        combined_text TEXT,
-                        category TEXT,
-                        priority TEXT,
-                        created_at TIMESTAMPTZ NOT NULL,
-                        resolved_at TIMESTAMPTZ,
-                        assignee TEXT,
-                        elapsed_resolution_minutes DOUBLE PRECISION,
-                        estimated_active_handling_minutes DOUBLE PRECISION NOT NULL,
-                        status TEXT DEFAULT 'Closed',
-                        predicted_workflow_id TEXT,
-                        similarity_score DOUBLE PRECISION,
-                        eval_ground_truth_workflow TEXT,
-                        eval_ground_truth_minutes DOUBLE PRECISION,
-                        normalized_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS workflow_mining.discovered_workflows (
-                        workflow_id TEXT PRIMARY KEY,
-                        run_id TEXT,
-                        tenant_id TEXT DEFAULT 'tenant_demo_sandbox',
-                        workflow_name TEXT NOT NULL,
-                        description TEXT,
-                        category TEXT,
-                        common_trigger TEXT,
-                        typical_resolution_steps TEXT[],
-                        required_inputs_and_systems TEXT[],
-                        common_exceptions TEXT[],
-                        suggested_automation_approach TEXT,
-                        confidence_score DOUBLE PRECISION,
-                        confidence_explanation TEXT,
-                        implementation_complexity TEXT,
-                        complexity_score DOUBLE PRECISION,
-                        representative_ticket_ids TEXT[],
-                        cluster_size INTEGER DEFAULT 0,
-                        created_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS workflow_mining.workflow_metrics (
-                        metric_id TEXT PRIMARY KEY,
-                        run_id TEXT NOT NULL,
-                        workflow_id TEXT NOT NULL,
-                        total_matching_tickets BIGINT,
-                        tickets_per_month DOUBLE PRECISION,
-                        avg_handling_minutes DOUBLE PRECISION,
-                        median_handling_minutes DOUBLE PRECISION,
-                        total_handling_hours_per_month DOUBLE PRECISION,
-                        estimated_annual_handling_hours DOUBLE PRECISION,
-                        hourly_labor_rate DOUBLE PRECISION,
-                        estimated_annual_labor_cost DOUBLE PRECISION,
-                        automatable_percentage DOUBLE PRECISION,
-                        potential_hours_saved_per_month DOUBLE PRECISION,
-                        potential_annual_hours_saved DOUBLE PRECISION,
-                        potential_annual_cost_savings DOUBLE PRECISION,
-                        priority_rank BIGINT,
-                        priority_score DOUBLE PRECISION,
-                        ranking_factors_json JSONB,
-                        calculation_assumptions_json JSONB,
-                        calculated_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                """)
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logger.warning(f"Could not connect to or initialize PostgreSQL: {e}. Falling back to SQLite.")
-            self.is_postgres = False
-            self._init_sqlite_db()
+        self._init_sqlite_db()
         
     def _init_sqlite_db(self):
         """Initializes canonical schema tables in SQLite."""
@@ -347,7 +220,11 @@ class TicketRepository:
                     dataset_name=dataset_name
                 )
                 
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        
         now_iso = datetime.utcnow().isoformat()
+        
         rows_to_insert = []
         for idx, row in df.iterrows():
             t_id = str(row[resolved_cols["ticket_id"]]).strip() if pd.notna(row.get(resolved_cols["ticket_id"])) else None
@@ -368,9 +245,11 @@ class TicketRepository:
             res_notes = str(row[resolved_cols.get("resolution_notes", "")]) if resolved_cols.get("resolution_notes") and pd.notna(row.get(resolved_cols["resolution_notes"])) else ""
             status = str(row[resolved_cols.get("status", "")]) if resolved_cols.get("status") and pd.notna(row.get(resolved_cols["status"])) else "Closed"
             
+            # Ground truth fields (strictly quarantined)
             gt_wf = str(row["workflow_ground_truth"]) if "workflow_ground_truth" in df.columns and pd.notna(row.get("workflow_ground_truth")) else None
             gt_mins = float(row["handling_minutes_ground_truth"]) if "handling_minutes_ground_truth" in df.columns and pd.notna(row.get("handling_minutes_ground_truth")) else None
             
+            # Estimate handling minutes if not present (between 5 and 60 mins heuristic)
             if gt_mins is not None:
                 active_handling_mins = gt_mins
             else:
@@ -403,67 +282,22 @@ class TicketRepository:
                     "assignee": assignee
                 })
             valid_records += 1
-
-        if self.is_postgres:
-            conn = psycopg2.connect(self.db_url)
-            with conn.cursor() as cur:
-                raw_data = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert]
-                execute_values(cur, """
-                    INSERT INTO workflow_mining.raw_tickets 
-                    (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
-                    VALUES %s
-                    ON CONFLICT (ticket_id) DO UPDATE SET
-                        title = EXCLUDED.title,
-                        description = EXCLUDED.description,
-                        category = EXCLUDED.category,
-                        priority = EXCLUDED.priority,
-                        created_at = EXCLUDED.created_at,
-                        resolved_at = EXCLUDED.resolved_at,
-                        assignee = EXCLUDED.assignee,
-                        resolution_notes = EXCLUDED.resolution_notes,
-                        status = EXCLUDED.status,
-                        workflow_ground_truth = EXCLUDED.workflow_ground_truth,
-                        handling_minutes_ground_truth = EXCLUDED.handling_minutes_ground_truth;
-                """, raw_data)
-
-                norm_data = [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert]
-                execute_values(cur, """
-                    INSERT INTO workflow_mining.normalized_tickets
-                    (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
-                    VALUES %s
-                    ON CONFLICT (ticket_id) DO UPDATE SET
-                        normalized_title = EXCLUDED.normalized_title,
-                        normalized_description = EXCLUDED.normalized_description,
-                        normalized_resolution_notes = EXCLUDED.normalized_resolution_notes,
-                        combined_text = EXCLUDED.combined_text,
-                        category = EXCLUDED.category,
-                        priority = EXCLUDED.priority,
-                        created_at = EXCLUDED.created_at,
-                        resolved_at = EXCLUDED.resolved_at,
-                        assignee = EXCLUDED.assignee,
-                        estimated_active_handling_minutes = EXCLUDED.estimated_active_handling_minutes,
-                        status = EXCLUDED.status,
-                        eval_ground_truth_workflow = EXCLUDED.eval_ground_truth_workflow,
-                        eval_ground_truth_minutes = EXCLUDED.eval_ground_truth_minutes;
-                """, norm_data)
-            conn.commit()
-            conn.close()
-        else:
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.cursor()
-            cur.executemany("""
-                INSERT OR REPLACE INTO raw_tickets 
-                (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert])
             
-            cur.executemany("""
-                INSERT OR REPLACE INTO normalized_tickets
-                (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert])
-            conn.commit()
-            conn.close()
+        # Bulk insert
+        cur.executemany("""
+            INSERT OR REPLACE INTO raw_tickets 
+            (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert])
+        
+        cur.executemany("""
+            INSERT OR REPLACE INTO normalized_tickets
+            (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert])
+        
+        conn.commit()
+        conn.close()
         
         return TicketIngestionResult(
             total_records=total_records,
@@ -478,7 +312,10 @@ class TicketRepository:
         """
         Ingests a list of normalized and sanitized ticket dictionaries directly into the repository.
         """
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
         now_iso = datetime.utcnow().isoformat()
+        
         valid_records = 0
         preview = []
         rows_to_insert = []
@@ -520,62 +357,20 @@ class TicketRepository:
             valid_records += 1
 
         if rows_to_insert:
-            if self.is_postgres:
-                conn = psycopg2.connect(self.db_url)
-                with conn.cursor() as cur:
-                    raw_data = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert]
-                    execute_values(cur, """
-                        INSERT INTO workflow_mining.raw_tickets 
-                        (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
-                        VALUES %s
-                        ON CONFLICT (ticket_id) DO UPDATE SET
-                            title = EXCLUDED.title,
-                            description = EXCLUDED.description,
-                            category = EXCLUDED.category,
-                            priority = EXCLUDED.priority,
-                            created_at = EXCLUDED.created_at,
-                            resolved_at = EXCLUDED.resolved_at,
-                            assignee = EXCLUDED.assignee,
-                            resolution_notes = EXCLUDED.resolution_notes,
-                            status = EXCLUDED.status;
-                    """, raw_data)
+            cur.executemany("""
+                INSERT OR REPLACE INTO raw_tickets 
+                (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert])
+            
+            cur.executemany("""
+                INSERT OR REPLACE INTO normalized_tickets
+                (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert])
 
-                    norm_data = [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert]
-                    execute_values(cur, """
-                        INSERT INTO workflow_mining.normalized_tickets
-                        (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
-                        VALUES %s
-                        ON CONFLICT (ticket_id) DO UPDATE SET
-                            normalized_title = EXCLUDED.normalized_title,
-                            normalized_description = EXCLUDED.normalized_description,
-                            normalized_resolution_notes = EXCLUDED.normalized_resolution_notes,
-                            combined_text = EXCLUDED.combined_text,
-                            category = EXCLUDED.category,
-                            priority = EXCLUDED.priority,
-                            created_at = EXCLUDED.created_at,
-                            resolved_at = EXCLUDED.resolved_at,
-                            assignee = EXCLUDED.assignee,
-                            estimated_active_handling_minutes = EXCLUDED.estimated_active_handling_minutes,
-                            status = EXCLUDED.status;
-                    """, norm_data)
-                conn.commit()
-                conn.close()
-            else:
-                conn = sqlite3.connect(self.db_path)
-                cur = conn.cursor()
-                cur.executemany("""
-                    INSERT OR REPLACE INTO raw_tickets 
-                    (ticket_id, tenant_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13]) for r in rows_to_insert])
-                
-                cur.executemany("""
-                    INSERT OR REPLACE INTO normalized_tickets
-                    (ticket_id, tenant_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, [(r[0], r[1], r[14], r[15], r[16], r[17], r[4], r[5], r[6], r[7], r[8], r[18], r[10], r[11], r[12], now_iso) for r in rows_to_insert])
-                conn.commit()
-                conn.close()
+        conn.commit()
+        conn.close()
         
         return TicketIngestionResult(
             total_records=len(ticket_dicts),
@@ -595,129 +390,100 @@ class TicketRepository:
         tenant_id: Optional[str] = None
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Queries normalized tickets with pagination and filtering."""
-        table = "workflow_mining.normalized_tickets" if self.is_postgres else "normalized_tickets"
-        param_char = "%s" if self.is_postgres else "?"
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         
-        query = f"SELECT * FROM {table} WHERE 1=1"
+        query = "SELECT * FROM normalized_tickets WHERE 1=1"
         params = []
         
         if tenant_id:
-            query += f" AND tenant_id = {param_char}"
+            query += " AND tenant_id = ?"
             params.append(tenant_id)
         if category:
-            query += f" AND category = {param_char}"
+            query += " AND category = ?"
             params.append(category)
         if workflow_id:
-            query += f" AND predicted_workflow_id = {param_char}"
+            query += " AND predicted_workflow_id = ?"
             params.append(workflow_id)
         if search:
-            query += f" AND (normalized_title LIKE {param_char} OR normalized_description LIKE {param_char})"
+            query += " AND (normalized_title LIKE ? OR normalized_description LIKE ?)"
             params.extend([f"%{search.lower()}%", f"%{search.lower()}%"])
             
+        # Count total
         count_query = query.replace("SELECT *", "SELECT COUNT(*)")
+        cur.execute(count_query, params)
+        total = cur.fetchone()[0]
         
-        if self.is_postgres:
-            conn = psycopg2.connect(self.db_url)
-            with conn.cursor() as cur:
-                cur.execute(count_query, params)
-                total = cur.fetchone()[0]
-                
-                query += f" ORDER BY created_at DESC LIMIT {param_char} OFFSET {param_char}"
-                params.extend([limit, offset])
-                
-                with conn.cursor(cursor_factory=RealDictCursor) as r_cur:
-                    r_cur.execute(query, params)
-                    rows = [dict(r) for r in r_cur.fetchall()]
-            conn.close()
-            return rows, total
-        else:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute(count_query, params)
-            total = cur.fetchone()[0]
-            
-            query += f" ORDER BY created_at DESC LIMIT {param_char} OFFSET {param_char}"
-            params.extend([limit, offset])
-            cur.execute(query, params)
-            rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
-            return rows, total
+        # Fetch page
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        cur.execute(query, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows, total
 
     def get_ticket_by_id(self, ticket_id: str) -> Optional[Dict[str, Any]]:
-        table = "workflow_mining.normalized_tickets" if self.is_postgres else "normalized_tickets"
-        param_char = "%s" if self.is_postgres else "?"
-        
-        if self.is_postgres:
-            conn = psycopg2.connect(self.db_url)
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(f"SELECT * FROM {table} WHERE ticket_id = {param_char}", (ticket_id,))
-                row = cur.fetchone()
-            conn.close()
-            return dict(row) if row else None
-        else:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute(f"SELECT * FROM {table} WHERE ticket_id = {param_char}", (ticket_id,))
-            row = cur.fetchone()
-            conn.close()
-            return dict(row) if row else None
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM normalized_tickets WHERE ticket_id = ?", (ticket_id,))
+        row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else None
 
     def get_all_normalized_tickets_for_clustering(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Retrieves tickets for semantic clustering.
         STRICT SAFETY: Does NOT include eval_ground_truth_workflow or ground-truth minutes!
         """
-        table = "workflow_mining.normalized_tickets" if self.is_postgres else "normalized_tickets"
-        param_char = "%s" if self.is_postgres else "?"
-        cols = "ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, estimated_active_handling_minutes, tenant_id"
-        
-        if self.is_postgres:
-            conn = psycopg2.connect(self.db_url)
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                if tenant_id:
-                    cur.execute(f"SELECT {cols} FROM {table} WHERE tenant_id = {param_char}", (tenant_id,))
-                else:
-                    cur.execute(f"SELECT {cols} FROM {table}")
-                rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
-            return rows
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        if tenant_id:
+            cur.execute("""
+                SELECT ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, estimated_active_handling_minutes, tenant_id
+                FROM normalized_tickets
+                WHERE tenant_id = ?
+            """, (tenant_id,))
         else:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            if tenant_id:
-                cur.execute(f"SELECT {cols} FROM {table} WHERE tenant_id = {param_char}", (tenant_id,))
-            else:
-                cur.execute(f"SELECT {cols} FROM {table}")
-            rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
-            return rows
+            cur.execute("""
+                SELECT ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, estimated_active_handling_minutes, tenant_id
+                FROM normalized_tickets
+            """)
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
 
     def update_ticket_workflow_assignments(self, assignments: List[Tuple[str, str, float]]):
         """Updates (ticket_id, workflow_id, similarity_score) assignments."""
-        table = "workflow_mining.normalized_tickets" if self.is_postgres else "normalized_tickets"
-        param_char = "%s" if self.is_postgres else "?"
-        
-        if self.is_postgres:
-            conn = psycopg2.connect(self.db_url)
-            with conn.cursor() as cur:
-                for t_id, wf_id, score in assignments:
-                    cur.execute(f"""
-                        UPDATE {table}
-                        SET predicted_workflow_id = {param_char}, similarity_score = {param_char}
-                        WHERE ticket_id = {param_char}
-                    """, (wf_id, score, t_id))
-            conn.commit()
-            conn.close()
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.executemany("""
+            UPDATE normalized_tickets
+            SET predicted_workflow_id = ?, similarity_score = ?
+            WHERE ticket_id = ?
+        """, [(wf_id, score, t_id) for t_id, wf_id, score in assignments])
+        conn.commit()
+        conn.close()
+
+    def clear_all_tickets_and_runs(self, tenant_id: Optional[str] = None):
+        """
+        Purges tickets and discovery runs so the system functions as a fresh live installation.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        if tenant_id:
+            cur.execute("DELETE FROM raw_tickets WHERE tenant_id = ?", (tenant_id,))
+            cur.execute("DELETE FROM normalized_tickets WHERE tenant_id = ?", (tenant_id,))
+            cur.execute("DELETE FROM discovered_workflows WHERE tenant_id = ?", (tenant_id,))
+            cur.execute("DELETE FROM analysis_runs WHERE tenant_id = ?", (tenant_id,))
         else:
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.cursor()
-            cur.executemany(f"""
-                UPDATE {table}
-                SET predicted_workflow_id = ?, similarity_score = ?
-                WHERE ticket_id = ?
-            """, [(wf_id, score, t_id) for t_id, wf_id, score in assignments])
-            conn.commit()
-            conn.close()
+            cur.execute("DELETE FROM raw_tickets")
+            cur.execute("DELETE FROM normalized_tickets")
+            cur.execute("DELETE FROM discovered_workflows")
+            cur.execute("DELETE FROM workflow_metrics")
+            cur.execute("DELETE FROM analysis_runs")
+        conn.commit()
+        conn.close()
+

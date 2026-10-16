@@ -1,44 +1,68 @@
 {
   "seed": 42,
-  "total_tickets": 3000,
-  "planted_total": 2250,
-  "one_off_total": 750,
+  "total_tickets": 10000,
+  "planted_total": 7500,
+  "one_off_total": 2500,
   "workflows": {
     "WF_ACCESS_PROVISIONING": {
       "name": "Access Provisioning and Permission Requests",
-      "count": 449,
-      "total_handling_minutes": 10128.499999999989,
-      "expected_hours_total": 168.81
+      "count": 888,
+      "total_handling_minutes": 20093.299999999985,
+      "expected_hours_total": 334.89
     },
     "WF_ENV_RESET": {
       "name": "Development or Test Environment Resets",
-      "count": 337,
-      "total_handling_minutes": 11953.800000000005,
-      "expected_hours_total": 199.23
+      "count": 791,
+      "total_handling_minutes": 27731.500000000015,
+      "expected_hours_total": 462.19
     },
     "WF_LOG_DISK_CLEANUP": {
       "name": "Log Cleanup and Disk Space Remediation",
-      "count": 381,
-      "total_handling_minutes": 7617.7000000000035,
-      "expected_hours_total": 126.96
+      "count": 760,
+      "total_handling_minutes": 15240.200000000013,
+      "expected_hours_total": 254.0
     },
     "WF_PASSWORD_RESET": {
       "name": "Password Resets and Account Unlocks",
-      "count": 523,
-      "total_handling_minutes": 6102.0,
-      "expected_hours_total": 101.7
+      "count": 1043,
+      "total_handling_minutes": 11957.199999999999,
+      "expected_hours_total": 199.29
     },
     "WF_DEPLOY_VALIDATION": {
       "name": "Routine Deployment and Configuration Validation",
-      "count": 294,
-      "total_handling_minutes": 8072.299999999999,
-      "expected_hours_total": 134.54
+      "count": 639,
+      "total_handling_minutes": 17662.4,
+      "expected_hours_total": 294.37
     },
     "WF_CERT_SERVICE_ACCOUNT": {
       "name": "Service Account and Certificate Renewal Requests",
-      "count": 266,
-      "total_handling_minutes": 10522.900000000003,
-      "expected_hours_total": 175.38
+      "count": 622,
+      "total_handling_minutes": 25049.200000000015,
+      "expected_hours_total": 417.49
+    },
+    "WF_CICD_FLAKY_TEST": {
+      "name": "CI/CD Pipeline Failure & Flaky Test Remediation",
+      "count": 736,
+      "total_handling_minutes": 22236.300000000003,
+      "expected_hours_total": 370.61
+    },
+    "WF_K8S_CRASHLOOP_OOM": {
+      "name": "Kubernetes CrashLoopBackOff & OOMKilled Pod Triage",
+      "count": 775,
+      "total_handling_minutes": 26956.199999999975,
+      "expected_hours_total": 449.27
+    },
+    "WF_TERRAFORM_LOCK": {
+      "name": "Terraform State Lock & IaC Drift Remediation",
+      "count": 668,
+      "total_handling_minutes": 15025.299999999994,
+      "expected_hours_total": 250.42
+    },
+    "WF_DB_MIGRATION_LOCK": {
+      "name": "Database Migration Lock & Replica Lag Remediation",
+      "count": 578,
+      "total_handling_minutes": 23086.69999999997,
+      "expected_hours_total": 384.78
     }
   }
 }

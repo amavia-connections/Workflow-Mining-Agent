@@ -109,17 +109,11 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
 
         tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id)
         if not tickets:
-            if tenant_id == "tenant_demo_sandbox":
-                csv_path = os.path.join(settings.DATA_DIR, "synthetic_tickets_3000.csv")
-                if not os.path.exists(csv_path):
-                    synth_tickets, _ = generate_synthetic_dataset(num_tickets=3000, seed=42)
-                    save_dataset_to_csv(synth_tickets, csv_path, include_ground_truth=True)
-                repo.ingest_csv(csv_path, dataset_name="Synthetic IT Service Tickets", tenant_id="tenant_demo_sandbox")
-            else:
-                tenant_info = ENTERPRISE_TENANTS.get(tenant_id, {})
-                tenant_tickets = generate_tenant_tickets(tenant_id=tenant_id, count=250, seed=abs(hash(tenant_id)) % 10000)
-                repo.ingest_ticket_records(tenant_tickets, dataset_name=f"{tenant_info.get('name', tenant_id)} Tickets", tenant_id=tenant_id)
-            tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id)
+            analysis_jobs[run_id]["status"] = "FAILED"
+            analysis_jobs[run_id]["error"] = "No tickets found for analysis. Please ingest tickets via Connectors or Webhooks first."
+            analysis_jobs[run_id]["message"] = "No tickets found in repository. Ingest tickets first."
+            discovered_workflows_cache[run_id] = []
+            return
 
         analysis_jobs[run_id]["progress"] = 30
         analysis_jobs[run_id]["message"] = "Clustering semantically similar tickets..."
@@ -193,6 +187,12 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         discovered_workflows_cache[run_id] = discovered_wfs
         tenant_runs[tenant_id] = run_id
 
+        if not discovered_wfs:
+            analysis_jobs[run_id]["status"] = "COMPLETED"
+            analysis_jobs[run_id]["progress"] = 100
+            analysis_jobs[run_id]["message"] = "Clustering completed. No significant workflow patterns detected in current ticket set."
+            return
+
         analysis_jobs[run_id]["progress"] = 80
         analysis_jobs[run_id]["message"] = "ADK Agent drafting automation specification for top workflow..."
 
@@ -233,7 +233,7 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
 
 
 def ensure_tenant_pipeline(tenant_id: str) -> str:
-    """Ensures the specified tenant has an initialized dataset and discovered workflows."""
+    """Ensures the specified tenant has discovered workflows if tickets exist."""
     global active_run_id
     if tenant_id in tenant_runs and tenant_runs[tenant_id] in discovered_workflows_cache:
         active_run_id = tenant_runs[tenant_id]
@@ -244,6 +244,20 @@ def ensure_tenant_pipeline(tenant_id: str) -> str:
     tenant_runs[tenant_id] = run_id
     active_run_id = run_id
     
+    tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id)
+    if not tickets:
+        # Live empty state: 0 tickets means clean waiting state
+        discovered_workflows_cache[run_id] = []
+        analysis_jobs[run_id] = {
+            "run_id": run_id,
+            "dataset_name": f"{tenant_info['name']} Tickets",
+            "status": "IDLE",
+            "progress": 0,
+            "message": "Awaiting live tickets from NovaDesk or Connectors.",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        return run_id
+
     analysis_jobs[run_id] = {
         "run_id": run_id,
         "dataset_name": f"{tenant_info['name']} Tickets",
@@ -254,6 +268,33 @@ def ensure_tenant_pipeline(tenant_id: str) -> str:
     }
     _execute_analysis_pipeline(run_id, 65.0, 0.75, 6, tenant_id=tenant_id)
     return run_id
+
+
+@app.post("/api/system/reset-tickets")
+def reset_tickets(tenant_id: Optional[str] = None):
+    """Purges all tickets, workflows, and cached runs from the system to start completely fresh."""
+    repo.clear_all_tickets_and_runs(tenant_id=tenant_id)
+    global discovered_workflows_cache, automation_specs_cache, tenant_specs, tenant_runs, evaluation_reports_cache, analysis_jobs, active_run_id
+    discovered_workflows_cache.clear()
+    automation_specs_cache.clear()
+    tenant_specs.clear()
+    tenant_runs.clear()
+    evaluation_reports_cache.clear()
+    analysis_jobs.clear()
+    active_run_id = None
+    audit_service.record_event(
+        actor_identity="System Admin",
+        role="Admin",
+        action_type="SYSTEM_RESET",
+        resource_id="all_tickets",
+        details="Purged all tickets and discovery runs to reset to a clean live state."
+    )
+    return {
+        "status": "success",
+        "total_tickets": 0,
+        "message": "All tickets and runs successfully purged. System is clean and ready for live ingestion."
+    }
+
 
 
 @app.get("/health")

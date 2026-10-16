@@ -155,43 +155,55 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
                 </tr>
               </thead>
               <tbody>
-                {topOpps.map((opp) => (
-                  <tr key={opp.workflow_id}>
-                    <td>
-                      <span className={`badge ${opp.priority_rank === 1 ? 'badge-blue' : 'badge-gray'}`} style={{ fontWeight: 700 }}>
-                        #{opp.priority_rank}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{opp.workflow_name}</td>
-                    <td>{opp.tickets_per_month} /mo</td>
-                    <td>{opp.total_handling_hours_per_month} hrs/mo</td>
-                    <td style={{ color: '#059669', fontWeight: 600 }}>
-                      ${Math.round(opp.potential_annual_cost_savings).toLocaleString()}
-                    </td>
-                    <td>
-                      <span className={`badge ${opp.implementation_complexity === 'Low' ? 'badge-green' : 'badge-amber'}`}>
-                        {opp.implementation_complexity}
-                      </span>
-                    </td>
-                    <td>
-                      {opp.priority_rank === 1 ? (
-                        <button 
-                          className="btn btn-primary btn-sm"
-                          onClick={() => onNavigateToStudio(opp.workflow_id)}
-                        >
-                          Draft Spec
-                        </button>
-                      ) : (
-                        <button 
-                          className="btn btn-outline btn-sm"
-                          onClick={() => onNavigateToWorkflow(opp.workflow_id)}
-                        >
-                          Inspect
-                        </button>
-                      )}
+                {topOpps.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1.2rem' }}>⚡</span>
+                        <div style={{ fontWeight: 600 }}>No workflows discovered yet</div>
+                        <div style={{ fontSize: '0.85rem' }}>Ingest live tickets from NovaDesk ITSM or Connectors to begin discovery.</div>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  topOpps.map((opp) => (
+                    <tr key={opp.workflow_id}>
+                      <td>
+                        <span className={`badge ${opp.priority_rank === 1 ? 'badge-blue' : 'badge-gray'}`} style={{ fontWeight: 700 }}>
+                          #{opp.priority_rank}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{opp.workflow_name}</td>
+                      <td>{opp.tickets_per_month} /mo</td>
+                      <td>{opp.total_handling_hours_per_month} hrs/mo</td>
+                      <td style={{ color: '#059669', fontWeight: 600 }}>
+                        ${Math.round(opp.potential_annual_cost_savings).toLocaleString()}
+                      </td>
+                      <td>
+                        <span className={`badge ${opp.implementation_complexity === 'Low' ? 'badge-green' : 'badge-amber'}`}>
+                          {opp.implementation_complexity}
+                        </span>
+                      </td>
+                      <td>
+                        {opp.priority_rank === 1 ? (
+                          <button 
+                            className="btn btn-primary btn-sm"
+                            onClick={() => onNavigateToStudio(opp.workflow_id)}
+                          >
+                            Draft Spec
+                          </button>
+                        ) : (
+                          <button 
+                            className="btn btn-outline btn-sm"
+                            onClick={() => onNavigateToWorkflow(opp.workflow_id)}
+                          >
+                            Inspect
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -203,29 +215,35 @@ export default function OverviewView({ summary, onNavigateToWorkflow, onNavigate
           <p className="card-desc">Monthly labor hours consumed per discovered workflow category.</p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' }}>
-            {distribution.map((item, idx) => {
-              const pct = Math.round((item.monthly_hours / maxMonthlyHours) * 100);
-              return (
-                <div key={item.workflow_id || idx}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: 500 }}>{item.name}</span>
-                    <span style={{ fontWeight: 600, color: '#334155' }}>
-                      {item.monthly_hours} hrs/mo ({item.ticket_count} tickets)
-                    </span>
+            {distribution.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '36px', color: '#64748b', fontSize: '0.85rem' }}>
+                No active workflow clusters found in current dataset.
+              </div>
+            ) : (
+              distribution.map((item, idx) => {
+                const pct = Math.round((item.monthly_hours / maxMonthlyHours) * 100);
+                return (
+                  <div key={item.workflow_id || idx}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 500 }}>{item.name}</span>
+                      <span style={{ fontWeight: 600, color: '#334155' }}>
+                        {item.monthly_hours} hrs/mo ({item.ticket_count} tickets)
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div 
+                        style={{ 
+                          width: `${pct}%`, 
+                          height: '100%', 
+                          background: idx === 0 ? '#4f46e5' : (idx === 1 ? '#0284c7' : '#059669'),
+                          borderRadius: '4px'
+                        }} 
+                      />
+                    </div>
                   </div>
-                  <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div 
-                      style={{ 
-                        width: `${pct}%`, 
-                        height: '100%', 
-                        background: idx === 0 ? '#2563eb' : idx === 1 ? '#059669' : idx === 2 ? '#d97706' : '#7c3aed',
-                        borderRadius: '4px'
-                      }} 
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
 
           <div style={{ marginTop: '24px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#64748b' }}>

@@ -4,81 +4,40 @@ AI Builder Cup 2026.
 
 Maintains an immutable, cryptographically hashed audit log of all
 governance decisions, data syncs, DLP redactions, and export activities.
-Supports Cloud SQL PostgreSQL when DATABASE_URL is configured, and SQLite for local DEMO mode.
 """
 import os
 import sqlite3
 import hashlib
 import uuid
-import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
 from backend.config import settings
 from backend.models.connector import AuditLogEntry, UserPersona
 
-logger = logging.getLogger("audit_service")
-
-try:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-    HAS_PSYCOPG2 = True
-except ImportError:
-    HAS_PSYCOPG2 = False
-
 
 class AuditService:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or os.path.join(settings.DATA_DIR, "workflow_mining.db")
-        db_url = (os.environ.get("DATABASE_URL") or settings.DATABASE_URL or "").strip()
-        self.is_postgres = bool(
-            HAS_PSYCOPG2 and (
-                db_url.startswith("postgresql://") or 
-                db_url.startswith("postgres://")
-            )
-        )
-        self.db_url = db_url
         self._init_table()
 
     def _init_table(self):
-        if self.is_postgres:
-            try:
-                conn = psycopg2.connect(self.db_url)
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        CREATE SCHEMA IF NOT EXISTS workflow_mining;
-                        CREATE TABLE IF NOT EXISTS workflow_mining.compliance_audit_logs (
-                            log_id TEXT PRIMARY KEY,
-                            timestamp_utc TIMESTAMPTZ DEFAULT NOW(),
-                            actor_identity TEXT NOT NULL,
-                            role TEXT NOT NULL,
-                            action_type TEXT NOT NULL,
-                            resource_id TEXT NOT NULL,
-                            details TEXT,
-                            audit_hash TEXT NOT NULL
-                        );
-                    """)
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                logger.warning(f"Could not initialize PostgreSQL audit table: {e}")
-        else:
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.cursor()
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS compliance_audit_logs (
-                    log_id TEXT PRIMARY KEY,
-                    timestamp_utc TEXT,
-                    actor_identity TEXT,
-                    role TEXT,
-                    action_type TEXT,
-                    resource_id TEXT,
-                    details TEXT,
-                    audit_hash TEXT
-                )
-            """)
-            conn.commit()
-            conn.close()
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS compliance_audit_logs (
+                log_id TEXT PRIMARY KEY,
+                timestamp_utc TEXT,
+                actor_identity TEXT,
+                role TEXT,
+                action_type TEXT,
+                resource_id TEXT,
+                details TEXT,
+                audit_hash TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
 
     def record_event(
         self,
@@ -109,69 +68,36 @@ class AuditService:
             audit_hash=audit_hash
         )
 
-        if self.is_postgres:
-            try:
-                conn = psycopg2.connect(self.db_url)
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO workflow_mining.compliance_audit_logs 
-                        (log_id, timestamp_utc, actor_identity, role, action_type, resource_id, details, audit_hash)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (entry.log_id, entry.timestamp_utc, entry.actor_identity, entry.role.value, entry.action_type, entry.resource_id, entry.details, entry.audit_hash))
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                logger.error(f"Failed to record audit event in PostgreSQL: {e}")
-        else:
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO compliance_audit_logs 
-                (log_id, timestamp_utc, actor_identity, role, action_type, resource_id, details, audit_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (entry.log_id, entry.timestamp_utc, entry.actor_identity, entry.role.value, entry.action_type, entry.resource_id, entry.details, entry.audit_hash))
-            conn.commit()
-            conn.close()
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO compliance_audit_logs 
+            (log_id, timestamp_utc, actor_identity, role, action_type, resource_id, details, audit_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (entry.log_id, entry.timestamp_utc, entry.actor_identity, entry.role.value, entry.action_type, entry.resource_id, entry.details, entry.audit_hash))
+        conn.commit()
+        conn.close()
 
         return entry
 
     def get_logs(self, limit: int = 50, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
         """Returns paginated audit logs ordered newest first."""
-        if self.is_postgres:
-            try:
-                conn = psycopg2.connect(self.db_url)
-                with conn.cursor() as cur:
-                    cur.execute("SELECT COUNT(*) FROM workflow_mining.compliance_audit_logs")
-                    total = cur.fetchone()[0]
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("""
-                        SELECT * FROM workflow_mining.compliance_audit_logs 
-                        ORDER BY timestamp_utc DESC 
-                        LIMIT %s OFFSET %s
-                    """, (limit, offset))
-                    rows = [dict(r) for r in cur.fetchall()]
-                conn.close()
-                return rows, total
-            except Exception as e:
-                logger.error(f"Failed to fetch audit logs from PostgreSQL: {e}")
-                return [], 0
-        else:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            
-            cur.execute("SELECT COUNT(*) FROM compliance_audit_logs")
-            total = cur.fetchone()[0]
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        cur.execute("SELECT COUNT(*) FROM compliance_audit_logs")
+        total = cur.fetchone()[0]
 
-            cur.execute("""
-                SELECT * FROM compliance_audit_logs 
-                ORDER BY timestamp_utc DESC 
-                LIMIT ? OFFSET ?
-            """, (limit, offset))
-            rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
+        cur.execute("""
+            SELECT * FROM compliance_audit_logs 
+            ORDER BY timestamp_utc DESC 
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
 
-            return rows, total
+        return rows, total
 
 
 # Singleton instance for platform-wide audit logging
