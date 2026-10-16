@@ -324,19 +324,6 @@ def ensure_tenant_pipeline(tenant_id: str) -> str:
     return run_id
 
 
-@app.on_event("startup")
-def startup_event():
-    """Start asynchronous background warm-up so uvicorn binds port 8080 immediately for Cloud Run health checks."""
-    def _bg_warmup():
-        try:
-            active_t = tenant_manager.get_active_tenant()["tenant_id"]
-            ensure_tenant_pipeline(active_t)
-        except Exception as ex:
-            print(f"[Startup Warning] Warm-up pipeline failed: {ex}")
-
-    threading.Thread(target=_bg_warmup, daemon=True).start()
-
-
 @app.post("/api/system/reset-tickets")
 def reset_tickets(tenant_id: Optional[str] = None):
     """Purges all tickets, workflows, and cached runs from the system to start completely fresh."""

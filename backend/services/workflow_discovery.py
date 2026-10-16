@@ -32,7 +32,7 @@ class WorkflowDiscoveryService:
         Never fabricates ticket facts or quantitative metrics.
         """
         # If in Cloud mode with Gemini enabled, attempt Gemini call
-        if self.is_cloud:
+        if self.is_cloud and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")):
             try:
                 interpretation = self._call_gemini_interpretation(representative_tickets)
                 if interpretation:

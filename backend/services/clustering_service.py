@@ -31,7 +31,7 @@ class ClusteringService:
         In Cloud mode: Vertex AI text-embedding-004.
         In Local demo mode: High-dimensional TF-IDF with sublinear TF scaling + TruncatedSVD (LSA).
         """
-        if self.is_cloud:
+        if self.is_cloud and settings.GOOGLE_CLOUD_PROJECT and (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GEMINI_API_KEY")):
             try:
                 import vertexai
                 from vertexai.language_models import TextEmbeddingModel

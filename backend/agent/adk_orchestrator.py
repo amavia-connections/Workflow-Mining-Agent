@@ -45,7 +45,7 @@ class ADKAutomationAgent:
         evidence_notes = [t.get("resolution_notes") for t in representative_tickets if t.get("resolution_notes")]
 
         # In cloud mode with Gemini, can query Gemini for dynamic specification
-        if self.is_cloud:
+        if self.is_cloud and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")):
             try:
                 spec = self._draft_with_gemini(workflow, representative_tickets, evidence_ids, run_id)
                 if spec:
