@@ -83,9 +83,9 @@ def is_cloud_mode_ready() -> bool:
     """
     Checks whether running in Cloud Run, or GCP credentials are configured.
     """
-    if os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN_JOB") or settings.APP_MODE.upper() in ("CLOUD", "LIVE"):
+    if os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN_JOB"):
         return True
-    if settings.GOOGLE_CLOUD_PROJECT:
+    if settings.GOOGLE_CLOUD_PROJECT and (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GEMINI_API_KEY")):
         return True
     creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if creds_path and os.path.exists(creds_path):
@@ -93,5 +93,7 @@ def is_cloud_mode_ready() -> bool:
     default_adc_path = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
     windows_adc_path = os.path.expandvars("%APPDATA%/gcloud/application_default_credentials.json")
     if os.path.exists(default_adc_path) or os.path.exists(windows_adc_path):
+        return True
+    if settings.APP_MODE.upper() == "CLOUD":
         return True
     return False
