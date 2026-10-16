@@ -325,7 +325,7 @@ class ConnectorManager:
             "message": f"Diagnostics passed: Successfully established authenticated handshake with {cfg.name}."
         }
 
-    def sync_connector(self, connector_id: str, max_records: int = 100, override_url: Optional[str] = None, override_user: Optional[str] = None, override_token: Optional[str] = None) -> SyncSummary:
+    def sync_connector(self, connector_id: str, max_records: int = 100, override_url: Optional[str] = None, override_user: Optional[str] = None, override_token: Optional[str] = None, tenant_id: Optional[str] = None) -> SyncSummary:
         cfg = self.get_connector(connector_id)
         if not cfg:
             raise KeyError(f"Connector '{connector_id}' not found.")
@@ -384,7 +384,8 @@ class ConnectorManager:
 
             # Ingest into repository
             dataset_label = f"{cfg.name} ({cfg.connector_type.value})"
-            ingest_res = self.repo.ingest_ticket_records(normalized_tickets, dataset_name=dataset_label)
+            target_tenant = tenant_id or getattr(cfg, 'tenant_id', None) or 'tenant-ent-prod-01'
+            ingest_res = self.repo.ingest_ticket_records(normalized_tickets, dataset_name=dataset_label, tenant_id=target_tenant)
 
             dur = round(time.time() - t0, 2)
             cfg.last_synced_at = datetime.utcnow()

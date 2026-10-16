@@ -703,12 +703,14 @@ def test_connector(connector_id: str, req: Optional[ConnectorTestPayload] = None
 def sync_connector(connector_id: str, req: ConnectorSyncRequest = ConnectorSyncRequest()):
     """Triggers live ingestion, dynamic field mapping, and DLP sanitization."""
     try:
+        active_tenant = tenant_manager.get_active_tenant()["tenant_id"]
         summary = connector_manager.sync_connector(
             connector_id, 
             max_records=req.max_records,
             override_url=req.tenant_url,
             override_user=req.username_or_email,
-            override_token=req.api_key
+            override_token=req.api_key,
+            tenant_id=active_tenant
         )
         return summary
     except Exception as e:
