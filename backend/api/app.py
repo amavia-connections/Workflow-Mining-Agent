@@ -645,6 +645,11 @@ class DLPPreviewRequest(BaseModel):
 
 class ConnectorSyncRequest(BaseModel):
     max_records: int = Field(default=100, ge=1, le=1000)
+    tenant_url: Optional[str] = None
+    api_key: Optional[str] = None
+    range_days: Optional[int] = 90
+    dlp_masking: Optional[bool] = True
+    is_simulated: Optional[bool] = False
 
 
 @app.get("/api/connectors")
@@ -659,11 +664,22 @@ def upsert_connector(config: ConnectorConfig):
     return connector_manager.upsert_connector(config)
 
 
+class ConnectorTestPayload(BaseModel):
+    is_simulated: Optional[bool] = False
+    tenant_url: Optional[str] = None
+    api_key: Optional[str] = None
+    credentials: Optional[Dict[str, Any]] = None
+
 @app.post("/api/connectors/{connector_id}/test")
-def test_connector(connector_id: str):
+def test_connector(connector_id: str, req: Optional[ConnectorTestPayload] = None):
     """Validates connectivity and authentication against the provider instance."""
     try:
-        return connector_manager.test_connection(connector_id)
+        url = None
+        token = None
+        if req:
+            url = req.tenant_url or (req.credentials.get("tenant_url") if req.credentials else None)
+            token = req.api_key or (req.credentials.get("api_key") if req.credentials else None)
+        return connector_manager.test_connection(connector_id, override_url=url, override_token=token)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -672,7 +688,12 @@ def test_connector(connector_id: str):
 def sync_connector(connector_id: str, req: ConnectorSyncRequest = ConnectorSyncRequest()):
     """Triggers live ingestion, dynamic field mapping, and DLP sanitization."""
     try:
-        summary = connector_manager.sync_connector(connector_id, max_records=req.max_records)
+        summary = connector_manager.sync_connector(
+            connector_id, 
+            max_records=req.max_records,
+            override_url=req.tenant_url,
+            override_token=req.api_key
+        )
         return summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Check, 
@@ -32,10 +32,10 @@ const CANONICAL_SCHEMA_FIELDS = [
 
 export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompleted }) {
   const [step, setStep] = useState(1);
-  const [isDemoMode, setIsDemoMode] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
   
   // Step 1: Credentials
-  const [tenantUrl, setTenantUrl] = useState(connector?.base_url || 'https://instance.service-now.com');
+  const [tenantUrl, setTenantUrl] = useState(connector?.base_url || '');
   const [apiKey, setApiKey] = useState('');
   const [authType, setAuthType] = useState('token'); // 'token', 'oauth', 'webhook'
   
@@ -71,6 +71,34 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
   const [syncStatusText, setSyncStatusText] = useState('');
   const [syncSuccess, setSyncSuccess] = useState(false);
 
+  // Reset and sync state when opening a connector
+  useEffect(() => {
+    if (connector) {
+      setStep(1);
+      setTenantUrl(connector.base_url || '');
+      setApiKey('');
+      setTestResult(null);
+      setIsTesting(false);
+      setSyncProgress(0);
+      setSyncStatusText('');
+      setSyncSuccess(false);
+      setIsDemoMode(false); // Live by default
+
+      const isSnow = connector.type === 'servicenow' || (connector.id && connector.id.includes('servicenow'));
+      setFieldMappings({
+        ticket_id: isSnow ? 'number' : 'id',
+        title: isSnow ? 'short_description' : 'summary',
+        description: isSnow ? 'description' : 'body',
+        category: isSnow ? 'category' : 'labels[0]',
+        priority: isSnow ? 'priority' : 'severity',
+        created_at: isSnow ? 'sys_created_on' : 'created_at',
+        resolved_at: isSnow ? 'closed_at' : 'resolved_at',
+        assignee: isSnow ? 'assigned_to.value' : 'assignee.name',
+        resolution_notes: isSnow ? 'close_notes' : 'resolution_comment'
+      });
+    }
+  }, [connector, isOpen]);
+
   if (!isOpen || !connector) return null;
 
   const handleTestConnection = async () => {
@@ -82,7 +110,8 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           is_simulated: isDemoMode,
-          credentials: { api_key: apiKey, tenant_url: tenantUrl }
+          tenant_url: tenantUrl,
+          api_key: apiKey
         })
       });
       if (res.ok) {
@@ -130,13 +159,26 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
         body: JSON.stringify({
           range_days: Number(syncRange),
           dlp_masking: dlpEnabled,
-          is_simulated: isDemoMode
+          is_simulated: isDemoMode,
+          tenant_url: tenantUrl,
+          api_key: apiKey
         })
       });
       const data = await res.json();
+      if (!res.ok || data.status === 'failed') {
+        const errMsg = data.error_message || data.detail || (data.errors && data.errors[0]) || 'Failed to sync with remote instance.';
+        setTimeout(() => {
+          setSyncProgress(100);
+          setSyncStatusText(`Sync failed: ${errMsg}`);
+          setIsSyncing(false);
+          setSyncSuccess(false);
+        }, 1200);
+        return;
+      }
       setTimeout(() => {
         setSyncProgress(100);
-        setSyncStatusText(`Sync complete! Ingested ${data.ingested_count || 120} tickets safely.`);
+        const count = data.tickets_ingested !== undefined ? data.tickets_ingested : (data.ingested_count !== undefined ? data.ingested_count : 0);
+        setSyncStatusText(`Sync complete! Ingested ${count} tickets safely.`);
         setIsSyncing(false);
         setSyncSuccess(true);
         if (onSyncCompleted) onSyncCompleted(data);
@@ -144,10 +186,9 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
     } catch (err) {
       setTimeout(() => {
         setSyncProgress(100);
-        setSyncStatusText('Sync completed in simulated local mode (150 sample tickets ingested).');
+        setSyncStatusText(`Sync failed: ${err.message || 'Remote endpoint unreachable or invalid credentials'}`);
         setIsSyncing(false);
-        setSyncSuccess(true);
-        if (onSyncCompleted) onSyncCompleted({ ingested_count: 150 });
+        setSyncSuccess(false);
       }, 1800);
     }
   };
@@ -297,7 +338,7 @@ export default function ConnectorModal({ isOpen, onClose, connector, onSyncCompl
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Remote Instance URL / Domain</label>
                   <input 
                     type="text" 
-                    placeholder="https://company.atlassian.net or https://instance.service-now.com"
+                    placeholder={connector ? `e.g. ${connector.base_url}` : 'https://api.provider.com'}
                     value={tenantUrl}
                     onChange={(e) => setTenantUrl(e.target.value)}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px', fontSize: '0.85rem' }}

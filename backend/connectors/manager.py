@@ -244,10 +244,18 @@ class ConnectorManager:
         self._connectors[config.connector_id] = config
         return config
 
-    def test_connection(self, connector_id: str) -> Dict[str, Any]:
+    def test_connection(self, connector_id: str, override_url: Optional[str] = None, override_token: Optional[str] = None) -> Dict[str, Any]:
         cfg = self.get_connector(connector_id)
         if not cfg:
             raise KeyError(f"Connector '{connector_id}' not found.")
+
+        # Create temporary runtime copy with user overrides if provided
+        if override_url or override_token:
+            cfg = ConnectorConfig(**cfg.model_dump())
+            if override_url:
+                cfg.base_url = override_url.strip()
+            if override_token:
+                cfg.api_token_or_secret = override_token.strip()
 
         # Real test for Jira or ServiceNow if live credentials exist
         if cfg.connector_type == ConnectorType.JIRA:
@@ -301,10 +309,18 @@ class ConnectorManager:
             "message": f"Diagnostics passed: Successfully established authenticated handshake with {cfg.name}."
         }
 
-    def sync_connector(self, connector_id: str, max_records: int = 100) -> SyncSummary:
+    def sync_connector(self, connector_id: str, max_records: int = 100, override_url: Optional[str] = None, override_token: Optional[str] = None) -> SyncSummary:
         cfg = self.get_connector(connector_id)
         if not cfg:
             raise KeyError(f"Connector '{connector_id}' not found.")
+
+        # Create temporary runtime copy with user overrides if provided
+        if override_url or override_token:
+            cfg = ConnectorConfig(**cfg.model_dump())
+            if override_url:
+                cfg.base_url = override_url.strip()
+            if override_token:
+                cfg.api_token_or_secret = override_token.strip()
 
         started_at = datetime.utcnow()
         t0 = time.time()

@@ -505,6 +505,7 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis, currentRo
 
       {/* Interactive Multi-Step Connector Modal */}
       <ConnectorModal 
+        key={selectedConnector?.id || 'none'}
         isOpen={isModalOpen}
         connector={selectedConnector}
         onClose={() => setIsModalOpen(false)}
