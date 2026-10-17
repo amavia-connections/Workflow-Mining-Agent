@@ -11,6 +11,7 @@ Orchestrates multi-step agent flow:
 6. MANDATORY SAFETY BOUNDARY: Never executes generated automations automatically.
 """
 
+import os
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -45,13 +46,13 @@ class ADKAutomationAgent:
         evidence_notes = [t.get("resolution_notes") for t in representative_tickets if t.get("resolution_notes")]
 
         # In cloud mode with Gemini, can query Gemini for dynamic specification
-        if self.is_cloud and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")):
-            try:
+        try:
+            if self.is_cloud and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")):
                 spec = self._draft_with_gemini(workflow, representative_tickets, evidence_ids, run_id)
                 if spec:
                     return spec
-            except Exception as e:
-                print(f"[Warning] Gemini specification drafting failed: {e}. Using deterministic ADK pipeline.")
+        except Exception as e:
+            print(f"[Warning] Gemini specification drafting failed: {e}. Using deterministic ADK pipeline.")
 
         return self._draft_grounded_specification(workflow, evidence_ids, evidence_notes, run_id)
 

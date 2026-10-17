@@ -532,6 +532,13 @@ def get_workflow(workflow_id: str, run_id: Optional[str] = None):
     ensure_tenant_pipeline(active_tenant_id)
     target_run = run_id or tenant_runs.get(active_tenant_id) or active_run_id
     workflows = discovered_workflows_cache.get(target_run, [])
+    if not workflows and active_run_id and active_run_id in discovered_workflows_cache:
+        workflows = discovered_workflows_cache[active_run_id]
+    if not workflows:
+        for wfs in discovered_workflows_cache.values():
+            if wfs:
+                workflows = wfs
+                break
     for w in workflows:
         if w.workflow_id == workflow_id:
             return w
@@ -566,12 +573,24 @@ def draft_automation_spec(workflow_id: str, run_id: Optional[str] = None):
     ensure_tenant_pipeline(active_tenant_id)
     target_run = run_id or tenant_runs.get(active_tenant_id) or active_run_id
     workflows = discovered_workflows_cache.get(target_run, [])
+    if not workflows and active_run_id and active_run_id in discovered_workflows_cache:
+        workflows = discovered_workflows_cache[active_run_id]
+    if not workflows:
+        for wfs in discovered_workflows_cache.values():
+            if wfs:
+                workflows = wfs
+                break
+    if not workflows:
+        workflows = get_workflows(run_id=target_run)
+
     target_wf = next((w for w in workflows if w.workflow_id == workflow_id), None)
+    if not target_wf and workflows:
+        target_wf = workflows[0]
     if not target_wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
         
-    rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=workflow_id, tenant_id=active_tenant_id)
-    spec = agent.draft_specification(target_wf, rep_tickets, target_run or "MANUAL-RUN")
+    rep_tickets, _ = repo.get_tickets(limit=5, workflow_id=target_wf.workflow_id, tenant_id=active_tenant_id)
+    spec = agent.draft_specification(target_wf, rep_tickets, target_run or active_run_id or "MANUAL-RUN")
     automation_specs_cache[spec.draft_id] = spec
     tenant_specs[active_tenant_id] = spec
     return spec
