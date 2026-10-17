@@ -53,6 +53,10 @@ Thumbs.db
 scratch/
 *.pdf
 
-# Persisted Seed Database & Connector State (Required for Docker & Cloud Run deployments)
+# Runtime Connector State and Secrets Protection
+data/connectors_state.json
+data/connectors_state*.json
+!data/connectors_state.example.json
+
+# Persisted Seed Database (Required for Docker & Cloud Run deployments)
 !data/workflow_mining.db
-!data/connectors_state.json

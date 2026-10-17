@@ -10,6 +10,7 @@ import time
 import hmac
 import hashlib
 import json
+import shutil
 import requests
 
 from backend.models.connector import (
@@ -62,6 +63,11 @@ class ConnectorManager:
         """Loads persisted connectors from disk on startup if available."""
         try:
             path = self._get_state_file_path()
+            if not os.path.exists(path):
+                from backend.config import settings
+                example_path = os.path.join(settings.DATA_DIR, "connectors_state.example.json")
+                if os.path.exists(example_path):
+                    shutil.copy2(example_path, path)
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
