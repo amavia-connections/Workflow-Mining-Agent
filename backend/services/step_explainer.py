@@ -34,7 +34,7 @@ class StepExplanationResponse(BaseModel):
     safeguards: str
     time_savings: str
     automation_tooling: List[str]
-    model_name: str = "Gemini 1.5 Flash"
+    model_name: str = "Gemini 3.8 Flash"
     generated_at: str
 
 
