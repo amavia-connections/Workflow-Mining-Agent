@@ -285,7 +285,7 @@ def explain_workflow_step(req: StepExplanationRequest) -> StepExplanationRespons
                 safeguards=data.get("safeguards", ""),
                 time_savings=data.get("time_savings", "Saves 10-15 minutes of manual toil per incident"),
                 automation_tooling=data.get("automation_tooling", ["Ansible", "Kubernetes", "Terraform", "Python SDK"]),
-                model_name="Gemini 1.5 Flash (Live API)",
+                model_name="Gemini 3.8 Flash (Live API)",
                 generated_at=datetime.utcnow().isoformat()
             )
         except Exception as ex:
@@ -303,7 +303,7 @@ def explain_workflow_step(req: StepExplanationRequest) -> StepExplanationRespons
             safeguards=fallback["safeguards"],
             time_savings=fallback["time_savings"],
             automation_tooling=fallback["automation_tooling"],
-            model_name="Gemini 1.5 Flash (Grounded Engine)",
+            model_name="Gemini 3.8 Flash (Grounded Engine)",
             generated_at=datetime.utcnow().isoformat()
         )
     except Exception as fallback_ex:
@@ -317,6 +317,6 @@ def explain_workflow_step(req: StepExplanationRequest) -> StepExplanationRespons
             safeguards="Validate target service response codes and apply automated rollback if preconditions fail.",
             time_savings="Saves 10-15 minutes of manual engineer triage per occurrence.",
             automation_tooling=["Python SDK", "Ansible", "Terraform", "REST API Webhooks"],
-            model_name="Gemini 1.5 Flash (Grounded Engine)",
+            model_name="Gemini 3.8 Flash (Grounded Engine)",
             generated_at=datetime.utcnow().isoformat()
         )

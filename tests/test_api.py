@@ -119,4 +119,5 @@ def test_explain_workflow_step_endpoint():
     assert "time_savings" in data
     assert isinstance(data["automation_tooling"], list)
     assert len(data["automation_tooling"]) > 0
+    assert "Gemini 3.8 Flash" in data["model_name"]
 
