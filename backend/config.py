@@ -37,7 +37,7 @@ class Settings(BaseModel):
     
     # Gemini Model configuration
     GEMINI_MODEL: str = Field(
-        default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
+        default_factory=lambda: os.environ.get("GEMINI_MODEL", "publishers/google/models/gemini-3.8-flash"),
         description="Gemini model name"
     )
     EMBEDDING_MODEL: str = Field(
@@ -71,8 +71,8 @@ class Settings(BaseModel):
         description="Data directory path"
     )
     DATABASE_URL: str = Field(
-        default_factory=lambda: os.environ.get("DATABASE_URL", "sqlite:///./data/workflow_mining.db"),
-        description="Local SQLite DB URL"
+        default_factory=lambda: os.environ.get("DATABASE_URL", "postgresql://workflow_user:u%3CtFZ%22N3%5EUB~lXp9@136.111.246.182:5432/workflow_mining"),
+        description="PostgreSQL or SQLite DB URL"
     )
 
 

@@ -201,11 +201,19 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         discovered_wfs = [DiscoveredWorkflow(**w) for w in ranked]
         discovered_workflows_cache[run_id] = discovered_wfs
         tenant_runs[tenant_id] = run_id
+        try:
+            repo.save_workflows(discovered_wfs, run_id, tenant_id=tenant_id)
+        except Exception as db_err:
+            print(f"[Database Warning] Could not persist workflows: {db_err}")
 
         if not discovered_wfs:
             analysis_jobs[run_id]["status"] = "COMPLETED"
             analysis_jobs[run_id]["progress"] = 100
             analysis_jobs[run_id]["message"] = "Clustering completed. No significant workflow patterns detected in current ticket set."
+            try:
+                repo.save_analysis_run(run_id, analysis_jobs[run_id], tenant_id=tenant_id)
+            except Exception as db_err:
+                print(f"[Database Warning] Could not persist run: {db_err}")
             return
 
         analysis_jobs[run_id]["progress"] = 80
@@ -217,6 +225,10 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         automation_spec = agent.draft_specification(top_wf, top_rep_tickets, run_id)
         automation_specs_cache[automation_spec.draft_id] = automation_spec
         tenant_specs[tenant_id] = automation_spec
+        try:
+            repo.save_automation_spec(automation_spec, tenant_id=tenant_id)
+        except Exception as db_err:
+            print(f"[Database Warning] Could not persist automation spec: {db_err}")
 
         analysis_jobs[run_id]["progress"] = 92
         analysis_jobs[run_id]["message"] = "Evaluating performance against ground truth..."
@@ -238,6 +250,10 @@ def _execute_analysis_pipeline(run_id: str, hourly_rate: float, automatable_pct:
         analysis_jobs[run_id]["completed_at"] = datetime.utcnow().isoformat()
         analysis_jobs[run_id]["top_workflow_id"] = top_wf.workflow_id
         analysis_jobs[run_id]["draft_id"] = automation_spec.draft_id
+        try:
+            repo.save_analysis_run(run_id, analysis_jobs[run_id], tenant_id=tenant_id)
+        except Exception as db_err:
+            print(f"[Database Warning] Could not persist run: {db_err}")
 
     except Exception as e:
         import traceback
@@ -265,6 +281,33 @@ def ensure_tenant_pipeline(tenant_id: str) -> str:
 
     if run_id in analysis_jobs and analysis_jobs[run_id].get("status") in ("RUNNING", "COMPLETED"):
         return run_id
+
+    # Restore from persistent database (PostgreSQL / SQLite) if available
+    try:
+        db_wfs = repo.get_discovered_workflows(tenant_id=tenant_id)
+        if db_wfs:
+            discovered_workflows_cache[run_id] = [DiscoveredWorkflow(**w) for w in db_wfs]
+            db_spec = repo.get_automation_spec(tenant_id=tenant_id)
+            if db_spec:
+                from backend.models.automation import AutomationSpecification
+                spec_obj = AutomationSpecification(**db_spec)
+                automation_specs_cache[spec_obj.draft_id] = spec_obj
+                tenant_specs[tenant_id] = spec_obj
+            db_run = repo.get_analysis_run(run_id, tenant_id=tenant_id)
+            if db_run:
+                analysis_jobs[run_id] = db_run
+            else:
+                analysis_jobs[run_id] = {
+                    "run_id": run_id,
+                    "dataset_name": f"{tenant_info['name']} Tickets",
+                    "status": "COMPLETED",
+                    "progress": 100,
+                    "message": "Workflows restored from persistent database.",
+                    "created_at": datetime.utcnow().isoformat()
+                }
+            return run_id
+    except Exception as db_err:
+        print(f"[Warning] Error restoring workflows from db: {db_err}")
 
     tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=tenant_id)
     if not tickets:
@@ -354,6 +397,12 @@ def get_dashboard_summary():
     active_run_id = cur_run_id
 
     workflows = discovered_workflows_cache.get(cur_run_id, [])
+    if not workflows:
+        db_wfs = repo.get_discovered_workflows(tenant_id=tenant_id)
+        if db_wfs:
+            workflows = [DiscoveredWorkflow(**w) for w in db_wfs]
+            discovered_workflows_cache[cur_run_id] = workflows
+
     full_tickets, total_tickets = repo.get_tickets(limit=1, tenant_id=tenant_id)
 
     total_monthly_hours = round(sum(w.metrics.total_handling_hours_per_month for w in workflows), 1)
@@ -515,6 +564,13 @@ def get_workflows(run_id: Optional[str] = None):
     for wfs in discovered_workflows_cache.values():
         if wfs:
             return wfs
+
+    # Check database persistence (PostgreSQL / SQLite)
+    db_wfs = repo.get_discovered_workflows(tenant_id=active_tenant_id)
+    if db_wfs:
+        discovered_workflows_cache[target_run] = [DiscoveredWorkflow(**w) for w in db_wfs]
+        return discovered_workflows_cache[target_run]
+
     tickets = repo.get_all_normalized_tickets_for_clustering(tenant_id=active_tenant_id)
     if tickets:
         try:
@@ -593,6 +649,10 @@ def draft_automation_spec(workflow_id: str, run_id: Optional[str] = None):
     spec = agent.draft_specification(target_wf, rep_tickets, target_run or active_run_id or "MANUAL-RUN")
     automation_specs_cache[spec.draft_id] = spec
     tenant_specs[active_tenant_id] = spec
+    try:
+        repo.save_automation_spec(spec, tenant_id=active_tenant_id)
+    except Exception as db_err:
+        print(f"[Database Warning] Could not persist automation spec: {db_err}")
     return spec
 
 
@@ -610,6 +670,18 @@ def get_automation_spec(draft_id: str):
         return tenant_specs[active_tenant_id]
     if automation_specs_cache:
         return list(automation_specs_cache.values())[0]
+
+    # Check persistent database (PostgreSQL / SQLite)
+    try:
+        db_spec = repo.get_automation_spec(draft_id=draft_id, tenant_id=active_tenant_id)
+        if db_spec:
+            from backend.models.automation import AutomationSpecification
+            spec_obj = AutomationSpecification(**db_spec)
+            automation_specs_cache[spec_obj.draft_id] = spec_obj
+            tenant_specs[active_tenant_id] = spec_obj
+            return spec_obj
+    except Exception as db_err:
+        print(f"[Database Warning] Could not read automation spec from db: {db_err}")
 
     # Auto-synthesize draft on-the-fly if workflows exist or tickets were ingested
     target_run = tenant_runs.get(active_tenant_id, active_run_id)
@@ -672,6 +744,10 @@ def review_automation_spec(draft_id: str, review: ReviewRequest):
     updated_spec = agent.process_review(spec, review)
     automation_specs_cache[updated_spec.draft_id] = updated_spec
     tenant_specs[active_tenant_id] = updated_spec
+    try:
+        repo.save_automation_spec(updated_spec, tenant_id=active_tenant_id)
+    except Exception as db_err:
+        print(f"[Database Warning] Could not persist review: {db_err}")
 
     audit_service.record_event(
         actor_identity=review.reviewer_name,

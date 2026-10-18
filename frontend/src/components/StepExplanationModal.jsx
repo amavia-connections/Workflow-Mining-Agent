@@ -136,7 +136,7 @@ export default function StepExplanationModal({
             </div>
             <div>
               <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>
-                Gemini 1.5 Flash is analyzing operational rationale...
+                Gemini 3.8 Flash is analyzing operational rationale...
               </strong>
               <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>
                 Synthesizing failure modes, automation playbooks, and toil reduction estimates.
@@ -247,7 +247,7 @@ export default function StepExplanationModal({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
           <div style={{ fontSize: '0.74rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Cpu size={14} color="#7c3aed" />
-            <span>AI Model: <strong>{data?.model_name || 'Gemini 1.5 Flash'}</strong></span>
+            <span>AI Model: <strong>{data?.model_name || 'Gemini 3.8 Flash'}</strong></span>
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
